@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Painel do Administrador • Condomínio Campo Belíssimo</title>
+<meta name="theme-color" content="#0b2545">
+<link rel="icon" href="../assets/icon-192.png">
+<link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<header class="app-header">
+  <img src="../assets/logo.svg" alt="Condomínio Campo Belíssimo" class="brand-logo">
+  <div class="header-info">
+    <div class="header-info-text">
+      <strong id="headerColaborador">Administrador</strong>
+      <span>Painel de administração</span>
+    </div>
+    <button type="button" id="btnLogout" class="btn-logout" aria-label="Sair">Sair</button>
+  </div>
+</header>
+
+<main id="app" class="admin-main">
+
+  <nav class="admin-tabs">
+    <button type="button" class="admin-tab active" data-tab="equipes">Equipes</button>
+    <button type="button" class="admin-tab" data-tab="lugares">Lugares</button>
+    <button type="button" class="admin-tab" data-tab="funcionarios">Funcionários</button>
+    <button type="button" class="admin-tab" data-tab="historico">Histórico</button>
+  </nav>
+
+  <!-- EQUIPES -->
+  <section id="tab-equipes" class="admin-panel">
+    <div class="card">
+      <h2>Nova equipe</h2>
+      <label for="novaEquipeNome">Nome da equipe</label>
+      <input type="text" id="novaEquipeNome" placeholder="ex: Manutenção">
+      <button id="btnCriarEquipe" class="btn btn-accent btn-block">Criar equipe</button>
+    </div>
+    <div class="card">
+      <h2>Equipes cadastradas</h2>
+      <div id="listaEquipes" class="admin-list"></div>
+    </div>
+  </section>
+
+  <!-- LUGARES -->
+  <section id="tab-lugares" class="admin-panel" hidden>
+    <div class="card">
+      <label for="selectEquipeLugares">Equipe</label>
+      <select id="selectEquipeLugares"></select>
+    </div>
+    <div class="card">
+      <h2>Novo lugar</h2>
+      <label for="novoLugarNome">Nome do lugar</label>
+      <input type="text" id="novoLugarNome" placeholder="ex: Torre Figueira">
+      <button id="btnCriarLugar" class="btn btn-accent btn-block">Criar lugar</button>
+    </div>
+    <div id="listaLugares"></div>
+  </section>
+
+  <!-- FUNCIONÁRIOS -->
+  <section id="tab-funcionarios" class="admin-panel" hidden>
+    <div class="card">
+      <h2>Novo funcionário</h2>
+      <label for="novoFuncNome">Nome completo</label>
+      <input type="text" id="novoFuncNome" placeholder="Nome do colaborador">
+      <label for="novoFuncUsuario">Usuário (login)</label>
+      <input type="text" id="novoFuncUsuario" placeholder="ex: joao.silva">
+      <label for="novoFuncSenha">Senha inicial</label>
+      <input type="password" id="novoFuncSenha" placeholder="mínimo 6 caracteres">
+      <label for="novoFuncEquipe">Equipe</label>
+      <select id="novoFuncEquipe"></select>
+      <button id="btnCriarFunc" class="btn btn-accent btn-block">Cadastrar funcionário</button>
+    </div>
+    <div class="card">
+      <h2>Funcionários</h2>
+      <div id="listaFuncionarios" class="admin-list"></div>
+    </div>
+  </section>
+
+  <!-- HISTÓRICO -->
+  <section id="tab-historico" class="admin-panel" hidden>
+    <div class="card">
+      <label for="selectEquipeHistorico">Equipe</label>
+      <select id="selectEquipeHistorico"></select>
+    </div>
+    <div id="listaHistorico" class="admin-list"></div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<div id="loadingOverlay" class="loading-overlay" hidden>
+  <div class="spinner"></div>
+  <span id="loadingText">Carregando...</span>
+</div>
+
+<script src="../vendor/jspdf.umd.min.js"></script>
+<script type="module" src="admin.js"></script>
+</body>
+</html>

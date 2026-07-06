@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Ronda • Condomínio Campo Belíssimo</title>
+<meta name="theme-color" content="#0b2545">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="app-header">
+  <img src="assets/logo.svg" alt="Condomínio Campo Belíssimo" class="brand-logo">
+  <div class="header-info" id="headerInfo" hidden>
+    <div class="header-info-text">
+      <strong id="headerColaborador"></strong>
+      <span id="headerMeta"></span>
+    </div>
+    <button type="button" id="btnLogout" class="btn-logout" aria-label="Sair">Sair</button>
+  </div>
+</header>
+
+<main id="app">
+
+  <!-- TELA 0: LOGIN -->
+  <section id="screen-login" class="screen">
+    <div class="card">
+      <h1>Entrar</h1>
+      <p class="subtitle">Acesse com o usuário e senha cadastrados pelo administrador.</p>
+
+      <label for="inputUsuario">Usuário</label>
+      <input type="text" id="inputUsuario" placeholder="ex: joao.silva" autocomplete="username">
+
+      <label for="inputSenha">Senha</label>
+      <input type="password" id="inputSenha" placeholder="Sua senha" autocomplete="current-password">
+
+      <p class="error-note" id="loginError" hidden></p>
+
+      <button id="btnLogin" class="btn btn-primary btn-block">Entrar</button>
+    </div>
+  </section>
+
+  <!-- TELA 1: INÍCIO DA RONDA -->
+  <section id="screen-setup" class="screen" hidden>
+    <div class="card">
+      <h1>Relatório de Ronda</h1>
+      <p class="subtitle" id="setupWelcome">Preencha o turno para iniciar a vistoria das áreas comuns.</p>
+
+      <label for="selectTurno">Turno</label>
+      <select id="selectTurno">
+        <option value="">Selecione...</option>
+        <option>Manhã</option>
+        <option>Tarde</option>
+        <option>Noite</option>
+      </select>
+
+      <p class="resume-note" id="resumeNote" hidden></p>
+
+      <button id="btnIniciar" class="btn btn-primary btn-block">Iniciar Ronda</button>
+    </div>
+  </section>
+
+  <!-- TELA 2: CHECKLIST -->
+  <section id="screen-checklist" class="screen" hidden>
+    <div class="progress-wrap">
+      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+      <span class="progress-label" id="progressLabel">0/0 concluídas</span>
+    </div>
+    <div id="groupsContainer"></div>
+    <div class="footer-spacer"></div>
+  </section>
+
+  <!-- TELA 3: RESUMO -->
+  <section id="screen-summary" class="screen" hidden>
+    <div class="card center">
+      <div class="success-icon">✓</div>
+      <h2>Relatório gerado!</h2>
+      <p id="summaryText"></p>
+      <button id="btnShare" class="btn btn-primary btn-block">Compartilhar Relatório (PDF)</button>
+      <button id="btnDownload" class="btn btn-secondary btn-block">Baixar PDF</button>
+      <button id="btnNovaRonda" class="btn btn-link btn-block">Iniciar Nova Ronda</button>
+    </div>
+  </section>
+
+</main>
+
+<footer id="checklistFooter" class="checklist-footer" hidden>
+  <button id="btnVoltar" class="btn btn-ghost">Dados</button>
+  <button id="btnGerarRelatorio" class="btn btn-accent btn-block">Gerar Relatório PDF</button>
+</footer>
+
+<input type="file" id="cameraInput" accept="image/*" capture="environment" hidden>
+
+<div id="toast" class="toast" hidden></div>
+<div id="loadingOverlay" class="loading-overlay" hidden>
+  <div class="spinner"></div>
+  <span id="loadingText">Gerando relatório...</span>
+</div>
+
+<script src="vendor/jspdf.umd.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
