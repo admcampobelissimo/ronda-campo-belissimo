@@ -131,6 +131,7 @@ async function runArchive({ teamId, teamName, cutoff, setLoading }) {
     .select("id, started_at, finished_at, profiles(full_name)")
     .eq("team_id", teamId)
     .not("finished_at", "is", null)
+    .is("archived_at", null)
     .lt("finished_at", cutoffIso)
     .order("finished_at", { ascending: true });
   if (error) throw error;
@@ -200,6 +201,8 @@ async function runArchive({ teamId, teamName, cutoff, setLoading }) {
         const { error: updateError } = await supabase.from("ronda_items").update({ photo_storage_path: null }).in("id", ids);
         if (updateError) throw updateError;
       }
+      const { error: archivedError } = await supabase.from("rondas").update({ archived_at: new Date().toISOString() }).eq("id", rm.rondaId);
+      if (archivedError) throw archivedError;
       archivedCount++;
     } catch (err) {
       console.error("PDF arquivado, mas falha ao liberar espaço da ronda", rm.rondaId, err);

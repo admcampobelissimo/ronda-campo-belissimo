@@ -54,6 +54,7 @@ create table public.rondas (
   turno text,
   started_at timestamptz not null default now(),
   finished_at timestamptz,
+  archived_at timestamptz,
   created_at timestamptz not null default now()
 );
 
