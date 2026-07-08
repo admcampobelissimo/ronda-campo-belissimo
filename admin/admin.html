@@ -86,6 +86,17 @@
       <select id="selectEquipeHistorico"></select>
     </div>
     <div id="listaHistorico" class="admin-list"></div>
+
+    <div class="card">
+      <h2>Arquivar rondas antigas no Google Drive</h2>
+      <p class="subtitle">Move rondas já concluídas (da equipe selecionada acima) para o seu Google Drive em PDF, liberando espaço no Supabase. Nada é apagado sem confirmar que chegou certinho no Drive.</p>
+      <button type="button" id="btnConectarDrive" class="btn btn-secondary btn-block">Conectar ao Google Drive</button>
+      <p id="driveStatus" class="drive-status"></p>
+      <label for="driveCutoffDate">Arquivar rondas concluídas antes de</label>
+      <input type="date" id="driveCutoffDate">
+      <button type="button" id="btnArquivar" class="btn btn-accent btn-block" disabled>Arquivar rondas antigas</button>
+      <div id="driveArchiveResult" class="drive-archive-result"></div>
+    </div>
   </section>
 
 </main>
@@ -96,7 +107,9 @@
   <span id="loadingText">Carregando...</span>
 </div>
 
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="../vendor/jspdf.umd.min.js"></script>
+<script src="../vendor/fflate.min.js"></script>
 <script type="module" src="admin.js"></script>
 </body>
 </html>

@@ -1,7 +1,8 @@
 import { supabase } from "../supabase-client.js";
 import { getSessionProfile, logout, adminCreateEmployee, adminResetPassword } from "../auth.js";
 import { formatDateTime, formatDate } from "../format.js";
-import { gerarRelatorioPDF } from "../pdf-report.js";
+import { fetchRondaItemsData, gerarPdfParaRonda } from "./ronda-report.js";
+import { initDriveArchive } from "./drive-archive.js";
 
 const toastEl = document.getElementById("toast");
 const loadingOverlay = document.getElementById("loadingOverlay");
@@ -38,6 +39,7 @@ let profile = null;
   wireLugares();
   wireFuncionarios();
   wireHistorico();
+  initDriveArchive({ getTeams: () => teamsCache, showToast, setLoading });
 })();
 
 document.getElementById("btnLogout").addEventListener("click", async () => {
@@ -426,23 +428,6 @@ document.getElementById("listaHistorico").addEventListener("click", async (e) =>
   }
 });
 
-async function fetchRondaItemsData(rondaId) {
-  const { data: ronda, error: rondaError } = await supabase
-    .from("rondas")
-    .select("id, turno, started_at, team_id, profiles(full_name), teams(name)")
-    .eq("id", rondaId)
-    .single();
-  if (rondaError) throw rondaError;
-
-  const { data: items, error: itemsError } = await supabase
-    .from("ronda_items")
-    .select("sub_place_id, observation, captured_at, photo_storage_path, sub_places(name, place_id, places(name))")
-    .eq("ronda_id", rondaId);
-  if (itemsError) throw itemsError;
-
-  return { ronda, items: items || [] };
-}
-
 async function renderRondaItems(rondaId, container) {
   container.innerHTML = `<p class="admin-empty">Carregando...</p>`;
   try {
@@ -476,55 +461,7 @@ async function renderRondaItems(rondaId, container) {
 async function gerarPdfHistorico(rondaId) {
   setLoading(true, "Gerando PDF...");
   try {
-    const { ronda, items } = await fetchRondaItemsData(rondaId);
-
-    const AREAS = [];
-    const FLAT_AREAS = [];
-    const stateAreas = {};
-    const groupSeen = new Map();
-    for (const it of items) {
-      const groupName = it.sub_places && it.sub_places.places ? it.sub_places.places.name : "Outros";
-      if (!groupSeen.has(groupName)) { groupSeen.set(groupName, []); AREAS.push({ group: groupName, areas: groupSeen.get(groupName) }); }
-      const name = it.sub_places ? it.sub_places.name : it.sub_place_id;
-      groupSeen.get(groupName).push(name);
-      FLAT_AREAS.push({ id: it.sub_place_id, group: groupName, name });
-      stateAreas[it.sub_place_id] = { done: true, timestamp: it.captured_at, obs: it.observation };
-    }
-
-    const photoCache = {};
-    async function getPhoto(subPlaceId) {
-      if (photoCache[subPlaceId] !== undefined) return photoCache[subPlaceId];
-      const item = items.find((i) => i.sub_place_id === subPlaceId);
-      if (!item || !item.photo_storage_path) { photoCache[subPlaceId] = null; return null; }
-      const { data } = await supabase.storage.from("ronda-photos").createSignedUrl(item.photo_storage_path, 3600);
-      if (!data) { photoCache[subPlaceId] = null; return null; }
-      const img = await new Promise((resolve, reject) => {
-        const el = new Image();
-        el.crossOrigin = "anonymous";
-        el.onload = () => resolve(el);
-        el.onerror = reject;
-        el.src = data.signedUrl;
-      });
-      const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-      canvas.getContext("2d").drawImage(img, 0, 0);
-      const result = { dataUrl: canvas.toDataURL("image/jpeg", 0.85), width: img.naturalWidth, height: img.naturalHeight };
-      photoCache[subPlaceId] = result;
-      return result;
-    }
-
-    const blob = await gerarRelatorioPDF({
-      AREAS, FLAT_AREAS, stateAreas,
-      meta: {
-        colaborador: ronda.profiles ? ronda.profiles.full_name : "—",
-        equipe: ronda.teams ? ronda.teams.name : "—",
-        turno: ronda.turno || "—",
-        startedAt: ronda.started_at
-      },
-      getPhoto,
-      logoUrl: "../assets/logo.png"
-    });
-
+    const { blob } = await gerarPdfParaRonda(rondaId);
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `Ronda_${rondaId.slice(0, 8)}.pdf`;
