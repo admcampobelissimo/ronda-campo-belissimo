@@ -1,7 +1,6 @@
-const CACHE_NAME = "ronda-cb-v4";
+const CACHE_NAME = "ronda-cb-v5";
 const STATIC_ASSETS = [
   "./vendor/jspdf.umd.min.js",
-  "./vendor/fflate.min.js",
   "./assets/logo.svg",
   "./assets/logo.png",
   "./assets/icon-192.png",

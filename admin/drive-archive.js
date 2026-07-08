@@ -67,6 +67,9 @@ async function driveFetchJson(url, options = {}) {
   return res.json();
 }
 
+// Acha (ou cria, na primeira vez) a pasta fixa onde todos os relatórios
+// arquivados se acumulam — assim tudo fica num só lugar, sem precisar abrir
+// zip nenhum.
 async function findOrCreateFolder() {
   if (folderIdCache) return folderIdCache;
   const q = encodeURIComponent(
@@ -86,15 +89,14 @@ async function findOrCreateFolder() {
   return folderIdCache;
 }
 
-// Envia o zip e SÓ retorna com sucesso se o tamanho confirmado pelo Drive
-// bater com o tamanho local — caso contrário lança erro (e nada é apagado
-// depois, pois quem chama só prossegue para a exclusão após isto resolver).
-async function uploadZipToDrive(zipBytes, filename) {
-  const folderId = await findOrCreateFolder();
+// Envia um arquivo e SÓ retorna com sucesso se o tamanho confirmado pelo
+// Drive bater com o tamanho local — caso contrário lança erro, e quem chama
+// não prossegue para apagar nada do Supabase.
+async function uploadFileToDrive(bytes, filename, folderId, mimeType) {
   const metadata = { name: filename, parents: [folderId] };
   const boundary = "ronda_cb_" + Math.random().toString(36).slice(2);
-  const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/zip\r\n\r\n`;
-  const body = new Blob([head, zipBytes, `\r\n--${boundary}--`]);
+  const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const body = new Blob([head, bytes, `\r\n--${boundary}--`]);
 
   const res = await fetch(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size",
@@ -112,9 +114,8 @@ async function uploadZipToDrive(zipBytes, filename) {
     throw new Error(`Falha ao enviar para o Drive (${res.status}): ${t.slice(0, 200)}`);
   }
   const json = await res.json();
-  const expectedSize = zipBytes.byteLength;
-  if (Number(json.size) !== expectedSize) {
-    throw new Error("O arquivo confirmado pelo Drive não bate com o tamanho enviado — nada foi apagado do Supabase.");
+  if (Number(json.size) !== bytes.byteLength) {
+    throw new Error("O arquivo confirmado pelo Drive não bate com o tamanho enviado.");
   }
   return json;
 }
@@ -123,7 +124,11 @@ function slug(str) {
   return String(str).replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-async function runArchive({ teamId, teamName, cutoff, setLoading }) {
+// Processa uma ronda de cada vez, de ponta a ponta: gera o PDF, sobe pro
+// Drive (na pasta fixa e compartilhada), confirma o tamanho, e só então libera
+// espaço no Supabase e marca a ronda como arquivada. Uma falha em qualquer
+// etapa pula só aquela ronda (nada é apagado) e segue para a próxima.
+async function runArchive({ teamId, cutoff, setLoading }) {
   const cutoffIso = new Date(cutoff + "T23:59:59").toISOString();
 
   const { data: rondas, error } = await supabase
@@ -140,77 +145,40 @@ async function runArchive({ teamId, teamName, cutoff, setLoading }) {
     return { archivedCount: 0, skipped: [], total: 0 };
   }
 
-  // Fase 1: gerar um PDF por ronda. Falha isolada = pula essa ronda e segue
-  // (nada é apagado nesta fase, então uma falha aqui não tem risco nenhum).
-  const files = {};
-  const rondaMeta = [];
+  const folderId = await findOrCreateFolder();
   const skipped = [];
+  let archivedCount = 0;
+
   for (let i = 0; i < rondas.length; i++) {
     const r = rondas[i];
-    setLoading(true, `Gerando PDF ${i + 1}/${rondas.length}...`);
+    setLoading(true, `Arquivando ${i + 1}/${rondas.length}...`);
     try {
       const { blob, items } = await gerarPdfParaRonda(r.id);
       const dateStr = (r.finished_at || r.started_at).slice(0, 10).replace(/-/g, "");
       const who = slug(r.profiles?.full_name || "funcionario");
       const filename = `Ronda_${dateStr}_${who}_${r.id.slice(0, 8)}.pdf`;
-      files[filename] = new Uint8Array(await blob.arrayBuffer());
-      rondaMeta.push({ rondaId: r.id, filename, items });
-    } catch (err) {
-      console.error("Falha ao gerar PDF da ronda", r.id, err);
-      skipped.push({ rondaId: r.id, motivo: "Falha ao gerar PDF: " + err.message });
-    }
-  }
+      const pdfBytes = new Uint8Array(await blob.arrayBuffer());
 
-  if (rondaMeta.length === 0) {
-    return { archivedCount: 0, skipped, total: rondas.length };
-  }
+      await uploadFileToDrive(pdfBytes, filename, folderId, "application/pdf");
 
-  // Fase 2: zipar tudo e autoconferir antes de gastar uma chamada de rede.
-  setLoading(true, "Compactando arquivos...");
-  const manifest = {
-    equipe: teamName,
-    dataCorte: cutoff,
-    geradoEm: new Date().toISOString(),
-    rondas: rondaMeta.map((r) => ({ rondaId: r.rondaId, arquivo: r.filename }))
-  };
-  files["manifest.json"] = window.fflate.strToU8(JSON.stringify(manifest, null, 2));
-
-  const zipped = window.fflate.zipSync(files, { level: 6 });
-  const check = window.fflate.unzipSync(zipped);
-  if (Object.keys(check).length !== Object.keys(files).length) {
-    throw new Error("Falha ao validar o arquivo compactado — nada foi enviado nem apagado.");
-  }
-
-  // Fase 3: upload — só passa daqui se o Drive confirmar o tamanho certo.
-  setLoading(true, "Enviando para o Google Drive...");
-  const zipName = `Arquivo_${slug(teamName)}_ate_${cutoff.replace(/-/g, "")}_gerado_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.zip`;
-  await uploadZipToDrive(zipped, zipName);
-
-  // Fase 4: só agora libera espaço — uma ronda de cada vez, e só marca como
-  // arquivada (limpa o caminho da foto) se a exclusão no Storage não deu erro.
-  let archivedCount = 0;
-  for (let i = 0; i < rondaMeta.length; i++) {
-    const rm = rondaMeta[i];
-    setLoading(true, `Liberando espaço ${i + 1}/${rondaMeta.length}...`);
-    const paths = rm.items.filter((it) => it.photo_storage_path).map((it) => it.photo_storage_path);
-    try {
+      const paths = items.filter((it) => it.photo_storage_path).map((it) => it.photo_storage_path);
       if (paths.length > 0) {
         const { error: removeError } = await supabase.storage.from("ronda-photos").remove(paths);
         if (removeError) throw removeError;
-        const ids = rm.items.filter((it) => it.photo_storage_path).map((it) => it.id);
+        const ids = items.filter((it) => it.photo_storage_path).map((it) => it.id);
         const { error: updateError } = await supabase.from("ronda_items").update({ photo_storage_path: null }).in("id", ids);
         if (updateError) throw updateError;
       }
-      const { error: archivedError } = await supabase.from("rondas").update({ archived_at: new Date().toISOString() }).eq("id", rm.rondaId);
+      const { error: archivedError } = await supabase.from("rondas").update({ archived_at: new Date().toISOString() }).eq("id", r.id);
       if (archivedError) throw archivedError;
       archivedCount++;
     } catch (err) {
-      console.error("PDF arquivado, mas falha ao liberar espaço da ronda", rm.rondaId, err);
-      skipped.push({ rondaId: rm.rondaId, motivo: "PDF já está no Drive, mas falhou ao apagar a foto original: " + err.message });
+      console.error("Falha ao arquivar a ronda", r.id, err);
+      skipped.push({ rondaId: r.id, motivo: err.message });
     }
   }
 
-  return { archivedCount, skipped, total: rondas.length, zipName };
+  return { archivedCount, skipped, total: rondas.length };
 }
 
 function renderSummary(el, summary) {
@@ -223,7 +191,7 @@ function renderSummary(el, summary) {
     : "";
   el.innerHTML = `
     <p class="drive-archive-ok">${summary.archivedCount} de ${summary.total} ronda(s) arquivada(s) e removida(s) do Supabase.</p>
-    ${summary.zipName ? `<p class="admin-empty">Arquivo: ${summary.zipName}</p>` : ""}
+    <p class="admin-empty">Cada uma foi salva como um PDF separado na pasta "${GOOGLE_DRIVE_FOLDER_NAME}" do seu Google Drive.</p>
     ${skippedHtml}`;
 }
 
@@ -249,7 +217,6 @@ export function initDriveArchive({ showToast, setLoading }) {
 
   btnArquivar.addEventListener("click", async () => {
     const teamId = teamSelect.value;
-    const teamName = teamSelect.options[teamSelect.selectedIndex]?.textContent || "Equipe";
     const cutoff = dateInput.value;
     if (!teamId) { showToast("Selecione uma equipe."); return; }
     if (!cutoff) { showToast("Selecione a data de corte."); return; }
@@ -259,7 +226,7 @@ export function initDriveArchive({ showToast, setLoading }) {
     resultEl.innerHTML = "";
     setLoading(true, "Buscando rondas elegíveis...");
     try {
-      const summary = await runArchive({ teamId, teamName, cutoff, setLoading });
+      const summary = await runArchive({ teamId, cutoff, setLoading });
       renderSummary(resultEl, summary);
     } catch (err) {
       console.error(err);
