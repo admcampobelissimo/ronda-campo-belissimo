@@ -15,7 +15,7 @@ export const CONDO_NOME = "Condomínio Campo Belíssimo";
 // (Credentials > OAuth client ID > Web application). Esse ID é seguro de
 // expor no código — a segurança vem da origem autorizada (o domínio do site),
 // não do sigilo do ID, assim como a anon key do Supabase acima.
-export const GOOGLE_OAUTH_CLIENT_ID = "SEU-CLIENT-ID.apps.googleusercontent.com";
+export const GOOGLE_OAUTH_CLIENT_ID = "682915053310-uhrjnublpnuji5hjn5icsghktukbbocg.apps.googleusercontent.com";
 
 // Nome da pasta criada (uma única vez) no Google Drive do administrador
 // para guardar os arquivos de rondas arquivadas.
