@@ -1,4 +1,4 @@
-const CACHE_NAME = "ronda-cb-v5";
+const CACHE_NAME = "ronda-cb-v6";
 const STATIC_ASSETS = [
   "./vendor/jspdf.umd.min.js",
   "./assets/logo.svg",
@@ -38,8 +38,13 @@ self.addEventListener("fetch", (event) => {
   const isCode = url.pathname === "/" || CODE_EXTENSIONS.some((ext) => url.pathname.endsWith(ext));
 
   if (isCode) {
+    // cache: "no-store" força ignorar também o cache HTTP comum do navegador,
+    // não só o Cache Storage do service worker — sem isso, o fetch() abaixo
+    // podia ser satisfeito por uma cópia antiga guardada pelo próprio navegador,
+    // mesmo essa lógica sendo "network-first".
+    const freshRequest = new Request(event.request, { cache: "no-store" });
     event.respondWith(
-      fetch(event.request)
+      fetch(freshRequest)
         .then((res) => {
           const copy = res.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
