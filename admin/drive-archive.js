@@ -99,7 +99,7 @@ async function uploadFileToDrive(bytes, filename, folderId, mimeType) {
   const body = new Blob([head, bytes, `\r\n--${boundary}--`]);
 
   const res = await fetch(
-    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size",
+    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,webViewLink",
     {
       method: "POST",
       headers: {
@@ -159,7 +159,8 @@ async function runArchive({ teamId, cutoff, setLoading }) {
       const filename = `Ronda_${dateStr}_${who}_${r.id.slice(0, 8)}.pdf`;
       const pdfBytes = new Uint8Array(await blob.arrayBuffer());
 
-      await uploadFileToDrive(pdfBytes, filename, folderId, "application/pdf");
+      const uploaded = await uploadFileToDrive(pdfBytes, filename, folderId, "application/pdf");
+      const driveLink = uploaded.webViewLink || `https://drive.google.com/file/d/${uploaded.id}/view`;
 
       const paths = items.filter((it) => it.photo_storage_path).map((it) => it.photo_storage_path);
       if (paths.length > 0) {
@@ -169,7 +170,9 @@ async function runArchive({ teamId, cutoff, setLoading }) {
         const { error: updateError } = await supabase.from("ronda_items").update({ photo_storage_path: null }).in("id", ids);
         if (updateError) throw updateError;
       }
-      const { error: archivedError } = await supabase.from("rondas").update({ archived_at: new Date().toISOString() }).eq("id", r.id);
+      const { error: archivedError } = await supabase.from("rondas")
+        .update({ archived_at: new Date().toISOString(), drive_file_link: driveLink })
+        .eq("id", r.id);
       if (archivedError) throw archivedError;
       archivedCount++;
     } catch (err) {

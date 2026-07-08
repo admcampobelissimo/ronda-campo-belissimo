@@ -384,7 +384,7 @@ async function loadHistorico(teamId) {
   if (!teamId) { el.innerHTML = ""; return; }
   const { data, error } = await supabase
     .from("rondas")
-    .select("id, turno, started_at, finished_at, profiles(full_name)")
+    .select("id, turno, started_at, finished_at, archived_at, drive_file_link, profiles(full_name)")
     .eq("team_id", teamId)
     .order("started_at", { ascending: false })
     .limit(100);
@@ -400,9 +400,11 @@ async function loadHistorico(teamId) {
       <div class="ronda-header" data-action="toggle-ronda">
         <div>
           <strong>${r.profiles ? r.profiles.full_name : "—"}</strong>
-          <span>${formatDate(r.started_at)} • ${r.turno || "—"} • ${r.finished_at ? "concluída" : "em andamento"}</span>
+          <span>${formatDate(r.started_at)} • ${r.turno || "—"} • ${r.finished_at ? "concluída" : "em andamento"}${r.archived_at ? " • arquivada no Drive" : ""}</span>
         </div>
-        <button type="button" class="btn-secondary-sm" data-action="gerar-pdf-historico">Gerar PDF</button>
+        ${r.archived_at && r.drive_file_link
+          ? `<a href="${r.drive_file_link}" target="_blank" rel="noopener" class="btn-secondary-sm" data-action="ver-drive">Ver no Drive</a>`
+          : `<button type="button" class="btn-secondary-sm" data-action="gerar-pdf-historico">Gerar PDF</button>`}
       </div>
       <div class="ronda-items" hidden></div>
     </div>`).join("");
@@ -413,7 +415,11 @@ document.getElementById("listaHistorico").addEventListener("click", async (e) =>
   if (!card) return;
   const rondaId = card.dataset.id;
 
-  if (e.target.closest('[data-action="toggle-ronda"]') && !e.target.closest('[data-action="gerar-pdf-historico"]')) {
+  if (
+    e.target.closest('[data-action="toggle-ronda"]') &&
+    !e.target.closest('[data-action="gerar-pdf-historico"]') &&
+    !e.target.closest('[data-action="ver-drive"]')
+  ) {
     const itemsEl = card.querySelector(".ronda-items");
     if (itemsEl.hidden) {
       itemsEl.hidden = false;

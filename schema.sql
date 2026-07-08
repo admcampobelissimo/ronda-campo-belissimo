@@ -55,6 +55,7 @@ create table public.rondas (
   started_at timestamptz not null default now(),
   finished_at timestamptz,
   archived_at timestamptz,
+  drive_file_link text,
   created_at timestamptz not null default now()
 );
 
