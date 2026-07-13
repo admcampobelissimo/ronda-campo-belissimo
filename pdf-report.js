@@ -111,89 +111,107 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
   doc.line(margin, y, pageW - margin, y);
   y += 10;
 
-  /* ---------------- CORPO: grade de 2 colunas por linha ---------------- */
-  const colGutter = 8;
-  const colW = (contentW - colGutter) / 2;
-  const maxPhotoH = 58;
+  /* ---------------- CORPO: grade contínua de 3 colunas ----------------
+     O nome do setor vira uma etiqueta pequena dentro do próprio card (em
+     vez de um título separado quebrando a grade) — assim setores com só
+     1 área (Academia, Cinema, etc.) não deixam a linha inteira vazia. */
+  const cols = 3;
+  const colGutter = 6;
+  const colW = (contentW - colGutter * (cols - 1)) / cols;
+  const photoH = colW * 0.72; // proporção ~4:3, fixa para todas as fotos
+
+  // Recorta a foto (modo "cover") num retângulo de proporção fixa, para as
+  // miniaturas ficarem todas do mesmo tamanho, sem depender da orientação
+  // da foto original (retrato/paisagem).
+  function cropToCover(dataUrl, targetRatio) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const srcRatio = img.naturalWidth / img.naturalHeight;
+        let sx, sy, sw, sh;
+        if (srcRatio > targetRatio) {
+          sh = img.naturalHeight; sw = sh * targetRatio;
+          sx = (img.naturalWidth - sw) / 2; sy = 0;
+        } else {
+          sw = img.naturalWidth; sh = sw / targetRatio;
+          sx = 0; sy = (img.naturalHeight - sh) / 2;
+        }
+        const outW = 480;
+        const canvas = document.createElement("canvas");
+        canvas.width = outW; canvas.height = Math.round(outW / targetRatio);
+        canvas.getContext("2d").drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      img.onerror = () => reject(new Error("Falha ao processar imagem"));
+      img.src = dataUrl;
+    });
+  }
 
   async function buildCard(area) {
     const entry = stateAreas[area.id];
     const photo = await getPhoto(area.id);
+    const croppedUrl = photo && photo.dataUrl ? await cropToCover(photo.dataUrl, colW / photoH) : null;
 
-    let imgW = 0, imgH = 0;
-    if (photo && photo.dataUrl && photo.width && photo.height) {
-      imgW = colW;
-      imgH = imgW * (photo.height / photo.width);
-      if (imgH > maxPhotoH) { imgH = maxPhotoH; imgW = imgH * (photo.width / photo.height); }
-    }
     const obsText = entry.obs && entry.obs.trim() ? entry.obs.trim() : "Sem observações.";
     const obsLines = doc.splitTextToSize(obsText, colW);
     const nameLines = doc.splitTextToSize(area.name, colW);
 
-    const photoBlockH = photo && photo.dataUrl ? imgH + 4 : 22; // reserva espaço p/ "Sem foto"
-    const height = nameLines.length * 5 + 4.5 + photoBlockH + 4 + obsLines.length * 4.2 + 6;
-
-    return { area, entry, photo, imgW, imgH, obsLines, nameLines, height };
+    const height = 4 + nameLines.length * 4.3 + 3.8 + photoH + 3.5 + obsLines.length * 3.9 + 5;
+    return { area, entry, croppedUrl, obsLines, nameLines, height };
   }
 
   function drawCard(card, x, top) {
     let cy = top;
     doc.setFont(undefined, "bold");
-    doc.setFontSize(10.5);
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GOLD);
+    doc.text(card.area.group.toUpperCase(), x, cy);
+    cy += 4;
+
+    doc.setFont(undefined, "bold");
+    doc.setFontSize(9.5);
     doc.setTextColor(...NAVY);
     doc.text(card.nameLines, x, cy);
-    cy += card.nameLines.length * 5;
+    cy += card.nameLines.length * 4.3;
 
     doc.setFont(undefined, "normal");
-    doc.setFontSize(8);
+    doc.setFontSize(7.3);
     doc.setTextColor(130);
     doc.text(formatDateTime(card.entry.timestamp), x, cy);
-    cy += 4.5;
+    cy += 3.8;
 
-    if (card.photo && card.photo.dataUrl) {
-      doc.addImage(card.photo.dataUrl, "JPEG", x, cy, card.imgW, card.imgH);
-      cy += card.imgH + 4;
+    if (card.croppedUrl) {
+      doc.addImage(card.croppedUrl, "JPEG", x, cy, colW, photoH);
     } else {
       doc.setDrawColor(225);
       doc.setFillColor(246, 247, 249);
-      doc.roundedRect(x, cy, colW, 18, 2, 2, "FD");
-      doc.setFontSize(8.5);
+      doc.roundedRect(x, cy, colW, photoH, 2, 2, "FD");
+      doc.setFontSize(7.5);
       doc.setTextColor(160);
-      doc.text("Sem foto disponível", x + colW / 2, cy + 10, { align: "center" });
-      cy += 22;
+      doc.text("Sem foto", x + colW / 2, cy + photoH / 2, { align: "center" });
     }
+    cy += photoH + 3.5;
 
     doc.setFont(undefined, "normal");
-    doc.setFontSize(8.7);
+    doc.setFontSize(7.6);
     doc.setTextColor(80);
     doc.text(card.obsLines, x, cy);
   }
 
-  for (const g of AREAS) {
-    const groupAreas = FLAT_AREAS.filter((a) => a.group === g.group && stateAreas[a.id] && stateAreas[a.id].done);
-    if (groupAreas.length === 0) continue;
+  const todasAreas = FLAT_AREAS.filter((a) => stateAreas[a.id] && stateAreas[a.id].done);
+  for (let i = 0; i < todasAreas.length; i += cols) {
+    const rowAreas = todasAreas.slice(i, i + cols);
+    const rowCards = [];
+    for (const a of rowAreas) rowCards.push(await buildCard(a));
+    const rowH = Math.max(...rowCards.map((c) => c.height));
 
-    ensureSpace(12);
-    doc.setFont(undefined, "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(...GOLD);
-    doc.text(g.group, margin, y);
-    y += 8;
+    ensureSpace(rowH + 5);
 
-    for (let i = 0; i < groupAreas.length; i += 2) {
-      const leftCard = await buildCard(groupAreas[i]);
-      const rightCard = groupAreas[i + 1] ? await buildCard(groupAreas[i + 1]) : null;
-      const rowH = Math.max(leftCard.height, rightCard ? rightCard.height : 0);
+    rowCards.forEach((card, idx) => drawCard(card, margin + idx * (colW + colGutter), y));
 
-      ensureSpace(rowH + 6);
-
-      drawCard(leftCard, margin, y);
-      if (rightCard) drawCard(rightCard, margin + colW + colGutter, y);
-
-      y += rowH + 7;
-      doc.setDrawColor(235);
-      doc.line(margin, y - 4, pageW - margin, y - 4);
-    }
+    y += rowH + 6;
+    doc.setDrawColor(238);
+    doc.line(margin, y - 3, pageW - margin, y - 3);
   }
 
   addFooters();
