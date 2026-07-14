@@ -189,8 +189,17 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
     const photo = await getPhoto(area.id);
     const croppedUrl = photo && photo.dataUrl ? await cropToCover(photo.dataUrl, colW / photoH) : null;
 
+    // splitTextToSize mede a largura com a fonte ATUALMENTE ativa no doc —
+    // por isso precisa bater exatamente com a fonte usada depois em drawCard,
+    // senão a quebra de linha é calculada errada e o texto acaba vazando
+    // para a coluna vizinha.
     const obsText = entry.obs && entry.obs.trim() ? entry.obs.trim() : "Sem observações.";
+    doc.setFont(undefined, "normal");
+    doc.setFontSize(7.6);
     const obsLines = doc.splitTextToSize(obsText, colW);
+
+    doc.setFont(undefined, "bold");
+    doc.setFontSize(9.5);
     const nameLines = doc.splitTextToSize(area.name, colW);
 
     return { area, entry, croppedUrl, obsLines, nameLines };
