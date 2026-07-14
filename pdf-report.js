@@ -24,13 +24,15 @@ function loadImageAsBase64(url) {
 // stateAreas: { [id]: { done, timestamp, obs } }
 // meta: { colaborador, equipe, turno, startedAt }
 // getPhoto: async (areaId) => { dataUrl, width, height } | null
-// logoUrl: caminho relativo do logo.png a partir de quem chamou (não usado
-// mais na capa, mas mantido no parâmetro por compatibilidade)
-export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, getPhoto }) {
+// logoUrl: caminho relativo do logo.png a partir de quem chamou
+export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, getPhoto, logoUrl = "assets/logo.png" }) {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageW = 210, pageH = 297, margin = 15, contentW = pageW - margin * 2;
-  let y = margin;
+
+  // Faixa fina reservada no topo das páginas 2 em diante (a capa tem seu
+  // próprio cabeçalho grande, desenhado à parte).
+  const runningHeaderH = 16;
 
   function addFooters() {
     const total = doc.internal.getNumberOfPages();
@@ -42,32 +44,63 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
       doc.text(`Página ${i}/${total}`, pageW - margin, pageH - 8, { align: "right" });
     }
   }
+  function addRunningHeaders() {
+    const total = doc.internal.getNumberOfPages();
+    for (let i = 2; i <= total; i++) {
+      doc.setPage(i);
+      doc.setFillColor(...NAVY);
+      doc.rect(0, 0, pageW, runningHeaderH, "F");
+      doc.setFillColor(...GOLD);
+      doc.rect(0, runningHeaderH, pageW, 0.9, "F");
+      doc.setFont(undefined, "bold");
+      doc.setFontSize(10.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text(CONDO_NOME, margin, runningHeaderH / 2 + 3.2);
+      doc.setFont(undefined, "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...GOLD_LIGHT);
+      doc.text("Relatório de Ronda", pageW - margin, runningHeaderH / 2 + 3.2, { align: "right" });
+    }
+  }
+
+  let y = margin;
   function ensureSpace(h) {
-    if (y + h > pageH - 16) { doc.addPage(); y = margin; }
+    if (y + h > pageH - 16) {
+      doc.addPage();
+      y = runningHeaderH + 12; // reserva espaço para a faixa fina desenhada no final
+    }
   }
 
   const done = Object.values(stateAreas).filter((a) => a.done).length;
   const total = FLAT_AREAS.length;
   const pendentesList = FLAT_AREAS.filter((a) => !(stateAreas[a.id] && stateAreas[a.id].done));
 
-  /* ---------------- CAPA: faixa azul marinho ---------------- */
-  const bannerH = 50;
+  /* ---------------- CAPA: faixa azul marinho + logo grande ---------------- */
+  const bannerH = 18;
   doc.setFillColor(...NAVY);
   doc.rect(0, 0, pageW, bannerH, "F");
   doc.setFillColor(...GOLD);
   doc.rect(0, bannerH, pageW, 1.4, "F");
 
+  y = bannerH + 14;
+
+  try {
+    const logoW = 90, logoH = logoW * (186 / 1214);
+    doc.addImage(await loadImageAsBase64(logoUrl), "PNG", margin, y, logoW, logoH);
+    y += logoH + 10;
+  } catch (e) { y += 6; }
+
   doc.setFont(undefined, "bold");
-  doc.setFontSize(24);
-  doc.setTextColor(255, 255, 255);
-  doc.text(CONDO_NOME, margin, 27);
+  doc.setFontSize(20);
+  doc.setTextColor(...NAVY);
+  doc.text("Relatório de Ronda", margin, y);
+  y += 8;
 
   doc.setFont(undefined, "normal");
   doc.setFontSize(12);
-  doc.setTextColor(...GOLD_LIGHT);
-  doc.text("RELATÓRIO DE RONDA · ÁREAS COMUNS", margin, 38);
-
-  y = bannerH + 16;
+  doc.setTextColor(90);
+  doc.text(CONDO_NOME, margin, y);
+  y += 10;
 
   const info = [
     ["Data", formatDate(meta.startedAt)],
@@ -114,11 +147,15 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
   /* ---------------- CORPO: grade contínua de 3 colunas ----------------
      O nome do setor vira uma etiqueta pequena dentro do próprio card (em
      vez de um título separado quebrando a grade) — assim setores com só
-     1 área (Academia, Cinema, etc.) não deixam a linha inteira vazia. */
+     1 área (Academia, Cinema, etc.) não deixam a linha inteira vazia.
+     Todos os cards de uma mesma linha reservam a MESMA altura pro bloco
+     do nome (baseada no card com mais linhas), pra foto/observação de
+     cada um começar sempre na mesma altura, sem sobrepor o vizinho. */
   const cols = 3;
   const colGutter = 6;
   const colW = (contentW - colGutter * (cols - 1)) / cols;
   const photoH = colW * 0.72; // proporção ~4:3, fixa para todas as fotos
+  const nameLineH = 4.3;
 
   // Recorta a foto (modo "cover") num retângulo de proporção fixa, para as
   // miniaturas ficarem todas do mesmo tamanho, sem depender da orientação
@@ -156,11 +193,14 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
     const obsLines = doc.splitTextToSize(obsText, colW);
     const nameLines = doc.splitTextToSize(area.name, colW);
 
-    const height = 4 + nameLines.length * 4.3 + 3.8 + photoH + 3.5 + obsLines.length * 3.9 + 5;
-    return { area, entry, croppedUrl, obsLines, nameLines, height };
+    return { area, entry, croppedUrl, obsLines, nameLines };
   }
 
-  function drawCard(card, x, top) {
+  function cardHeight(card, maxNameLines) {
+    return 4 + maxNameLines * nameLineH + 3.8 + photoH + 3.5 + card.obsLines.length * 3.9 + 5;
+  }
+
+  function drawCard(card, x, top, maxNameLines) {
     let cy = top;
     doc.setFont(undefined, "bold");
     doc.setFontSize(7.5);
@@ -172,7 +212,7 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
     doc.setFontSize(9.5);
     doc.setTextColor(...NAVY);
     doc.text(card.nameLines, x, cy);
-    cy += card.nameLines.length * 4.3;
+    cy += maxNameLines * nameLineH; // altura reservada igual pra toda a linha
 
     doc.setFont(undefined, "normal");
     doc.setFontSize(7.3);
@@ -203,11 +243,13 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
     const rowAreas = todasAreas.slice(i, i + cols);
     const rowCards = [];
     for (const a of rowAreas) rowCards.push(await buildCard(a));
-    const rowH = Math.max(...rowCards.map((c) => c.height));
+
+    const maxNameLines = Math.max(...rowCards.map((c) => c.nameLines.length));
+    const rowH = Math.max(...rowCards.map((c) => cardHeight(c, maxNameLines)));
 
     ensureSpace(rowH + 5);
 
-    rowCards.forEach((card, idx) => drawCard(card, margin + idx * (colW + colGutter), y));
+    rowCards.forEach((card, idx) => drawCard(card, margin + idx * (colW + colGutter), y, maxNameLines));
 
     y += rowH + 6;
     doc.setDrawColor(238);
@@ -215,5 +257,6 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
   }
 
   addFooters();
+  addRunningHeaders();
   return doc.output("blob");
 }
