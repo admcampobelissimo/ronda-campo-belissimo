@@ -18,6 +18,9 @@ function setLoading(on, text) {
   loadingOverlay.hidden = !on;
   if (text) loadingText.textContent = text;
 }
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
 
 /* ---------------------------------------------------------
    SESSÃO / GATE
@@ -139,21 +142,26 @@ function wireEquipes() {
 /* ---------------------------------------------------------
    LUGARES / SUB-LUGARES
 --------------------------------------------------------- */
+const FREQ_LABELS = { diaria: "Diária", semanal: "Semanal", mensal: "Mensal" };
+
 function wireLugares() {
   const select = document.getElementById("selectEquipeLugares");
   select.addEventListener("change", () => loadLugares(select.value));
   document.getElementById("btnCriarLugar").addEventListener("click", async () => {
     const teamId = select.value;
     const input = document.getElementById("novoLugarNome");
+    const freqSelect = document.getElementById("novoLugarFrequencia");
     const name = input.value.trim();
+    const frequency = freqSelect.value || "diaria";
     if (!teamId) { showToast("Cadastre uma equipe primeiro."); return; }
     if (!name) { showToast("Informe o nome do lugar."); return; }
     setLoading(true, "Criando lugar...");
     try {
       const { count } = await supabase.from("places").select("id", { count: "exact", head: true }).eq("team_id", teamId);
-      const { error } = await supabase.from("places").insert({ team_id: teamId, name, sort_order: (count || 0) + 1 });
+      const { error } = await supabase.from("places").insert({ team_id: teamId, name, frequency, sort_order: (count || 0) + 1 });
       if (error) throw error;
       input.value = "";
+      freqSelect.value = "diaria";
       await loadLugares(teamId);
       showToast("Lugar criado.");
     } catch (err) {
@@ -168,6 +176,43 @@ function wireLugares() {
     const addBtn = e.target.closest('[data-action="add-subplace"]');
     const delPlaceBtn = e.target.closest('[data-action="del-place"]');
     const delSubBtn = e.target.closest('[data-action="del-subplace"]');
+    const editBtn = e.target.closest('[data-action="edit-place"]');
+    const cancelBtn = e.target.closest('[data-action="cancel-place-edit"]');
+    const saveBtn = e.target.closest('[data-action="save-place-edit"]');
+
+    if (editBtn) {
+      const card = editBtn.closest(".place-card");
+      card.querySelector(".place-view").hidden = true;
+      card.querySelector(".place-edit-row").hidden = false;
+      return;
+    }
+
+    if (cancelBtn) {
+      const card = cancelBtn.closest(".place-card");
+      card.querySelector(".place-view").hidden = false;
+      card.querySelector(".place-edit-row").hidden = true;
+      return;
+    }
+
+    if (saveBtn) {
+      const card = saveBtn.closest(".place-card");
+      const placeId = card.dataset.id;
+      const name = card.querySelector(".editar-lugar-nome").value.trim();
+      const frequency = card.querySelector(".editar-lugar-frequencia").value;
+      if (!name) { showToast("Informe o nome do lugar."); return; }
+      setLoading(true, "Salvando...");
+      try {
+        const { error } = await supabase.from("places").update({ name, frequency }).eq("id", placeId);
+        if (error) throw error;
+        await loadLugares(teamId);
+        showToast("Lugar atualizado.");
+      } catch (err) {
+        showToast("Erro ao salvar lugar: " + err.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     if (addBtn) {
       const placeCard = addBtn.closest(".place-card");
@@ -221,6 +266,8 @@ function wireLugares() {
       }
     }
   });
+
+  wirePlaceDrag(select);
 }
 
 async function loadLugares(teamId) {
@@ -228,7 +275,7 @@ async function loadLugares(teamId) {
   if (!teamId) { el.innerHTML = ""; return; }
   const { data: places, error } = await supabase
     .from("places")
-    .select("id, name, sort_order, sub_places(id, name, sort_order)")
+    .select("id, name, sort_order, frequency, sub_places(id, name, sort_order)")
     .eq("team_id", teamId)
     .order("sort_order", { ascending: true });
   if (error) { showToast("Erro ao carregar lugares."); return; }
@@ -240,16 +287,35 @@ async function loadLugares(teamId) {
 
   el.innerHTML = places.map((p) => {
     const subs = [...(p.sub_places || [])].sort((a, b) => a.sort_order - b.sort_order);
+    const freq = p.frequency || "diaria";
+    const nameEsc = escapeHtml(p.name);
     return `
       <div class="card place-card" data-id="${p.id}">
         <div class="place-header">
-          <h3>${p.name}</h3>
-          <button type="button" class="btn-danger-sm" data-action="del-place">Excluir lugar</button>
+          <button type="button" class="drag-handle" data-action="drag-handle" aria-label="Arrastar para reordenar">⠿</button>
+          <div class="place-view">
+            <h3>${nameEsc}</h3>
+            <span class="freq-badge freq-${freq}">${FREQ_LABELS[freq]}</span>
+          </div>
+          <div class="place-header-actions">
+            <button type="button" class="btn-secondary-sm" data-action="edit-place">Editar</button>
+            <button type="button" class="btn-danger-sm" data-action="del-place">Excluir lugar</button>
+          </div>
+        </div>
+        <div class="place-edit-row" hidden>
+          <input type="text" class="editar-lugar-nome" value="${nameEsc}">
+          <select class="editar-lugar-frequencia">
+            <option value="diaria" ${freq === "diaria" ? "selected" : ""}>Diária</option>
+            <option value="semanal" ${freq === "semanal" ? "selected" : ""}>Semanal</option>
+            <option value="mensal" ${freq === "mensal" ? "selected" : ""}>Mensal</option>
+          </select>
+          <button type="button" class="btn btn-primary" data-action="save-place-edit">Salvar</button>
+          <button type="button" class="btn btn-secondary" data-action="cancel-place-edit">Cancelar</button>
         </div>
         <div class="sub-list">
           ${subs.map((s) => `
             <div class="admin-row" data-sub-id="${s.id}">
-              <span>${s.name}</span>
+              <span>${escapeHtml(s.name)}</span>
               <button type="button" class="btn-danger-sm" data-action="del-subplace">Excluir</button>
             </div>`).join("") || '<p class="admin-empty">Sem sub-lugares.</p>'}
         </div>
@@ -259,6 +325,85 @@ async function loadLugares(teamId) {
         </div>
       </div>`;
   }).join("");
+}
+
+/* ---------------------------------------------------------
+   ARRASTAR PARA REORDENAR LUGARES (Pointer Events — funciona
+   com mouse e toque, ao contrário da API nativa de Drag&Drop)
+--------------------------------------------------------- */
+function wirePlaceDrag(teamSelect) {
+  const listaLugares = document.getElementById("listaLugares");
+  let drag = null; // { card, placeholder, grabOffsetY }
+
+  listaLugares.addEventListener("pointerdown", (e) => {
+    const handle = e.target.closest('[data-action="drag-handle"]');
+    if (!handle) return;
+    const card = handle.closest(".place-card");
+    if (!card) return;
+    e.preventDefault();
+
+    const rect = card.getBoundingClientRect();
+    const placeholder = document.createElement("div");
+    placeholder.className = "place-card-placeholder";
+    placeholder.style.height = rect.height + "px";
+    card.after(placeholder);
+
+    drag = { card, placeholder, grabOffsetY: e.clientY - rect.top };
+    card.style.position = "fixed";
+    card.style.top = rect.top + "px";
+    card.style.left = rect.left + "px";
+    card.style.width = rect.width + "px";
+    card.classList.add("dragging");
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+  });
+
+  function onPointerMove(e) {
+    if (!drag) return;
+    drag.card.style.top = (e.clientY - drag.grabOffsetY) + "px";
+
+    const siblings = [...listaLugares.querySelectorAll(".place-card")].filter((c) => c !== drag.card);
+    let target = null;
+    for (const sib of siblings) {
+      const r = sib.getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { target = sib; break; }
+    }
+    if (target) {
+      listaLugares.insertBefore(drag.placeholder, target);
+    } else {
+      listaLugares.appendChild(drag.placeholder);
+    }
+  }
+
+  async function onPointerUp() {
+    if (!drag) return;
+    window.removeEventListener("pointermove", onPointerMove);
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerUp);
+
+    const { card, placeholder } = drag;
+    drag = null;
+    placeholder.replaceWith(card);
+    card.classList.remove("dragging");
+    card.style.position = "";
+    card.style.top = "";
+    card.style.left = "";
+    card.style.width = "";
+
+    const teamId = teamSelect.value;
+    const ids = [...listaLugares.querySelectorAll(".place-card")].map((c) => c.dataset.id);
+    setLoading(true, "Salvando nova ordem...");
+    try {
+      await Promise.all(ids.map((id, i) => supabase.from("places").update({ sort_order: i + 1 }).eq("id", id)));
+    } catch (err) {
+      showToast("Erro ao salvar a nova ordem: " + err.message);
+      await loadLugares(teamId);
+    } finally {
+      setLoading(false);
+    }
+  }
 }
 
 /* ---------------------------------------------------------
@@ -384,7 +529,7 @@ async function loadHistorico(teamId) {
   if (!teamId) { el.innerHTML = ""; return; }
   const { data, error } = await supabase
     .from("rondas")
-    .select("id, turno, started_at, finished_at, archived_at, drive_file_link, profiles(full_name)")
+    .select("id, turno, frequency, started_at, finished_at, archived_at, drive_file_link, profiles(full_name)")
     .eq("team_id", teamId)
     .order("started_at", { ascending: false })
     .limit(100);
@@ -400,7 +545,7 @@ async function loadHistorico(teamId) {
       <div class="ronda-header" data-action="toggle-ronda">
         <div>
           <strong>${r.profiles ? r.profiles.full_name : "—"}</strong>
-          <span>${formatDate(r.started_at)} • ${r.turno || "—"} • ${r.finished_at ? "concluída" : "em andamento"}${r.archived_at ? " • arquivada no Drive" : ""}</span>
+          <span>${formatDate(r.started_at)} • ${r.turno || (r.frequency ? FREQ_LABELS[r.frequency] : "—")} • ${r.finished_at ? "concluída" : "em andamento"}${r.archived_at ? " • arquivada no Drive" : ""}</span>
         </div>
         ${r.archived_at && r.drive_file_link
           ? `<a href="${r.drive_file_link}" target="_blank" rel="noopener" class="btn-secondary-sm" data-action="ver-drive">Ver no Drive</a>`

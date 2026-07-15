@@ -47,15 +47,17 @@
   <section id="screen-setup" class="screen" hidden>
     <div class="card">
       <h1>Relatório de Ronda</h1>
-      <p class="subtitle" id="setupWelcome">Preencha o turno para iniciar a vistoria das áreas comuns.</p>
+      <p class="subtitle" id="setupWelcome">Toque em iniciar para começar a vistoria das áreas comuns.</p>
 
-      <label for="selectTurno">Turno</label>
-      <select id="selectTurno">
-        <option value="">Selecione...</option>
-        <option>Manhã</option>
-        <option>Tarde</option>
-        <option>Noite</option>
-      </select>
+      <div id="periodicidadeWrap" hidden>
+        <label for="selectPeriodicidade">Periodicidade</label>
+        <select id="selectPeriodicidade">
+          <option value="">Selecione...</option>
+          <option value="diaria">Diária</option>
+          <option value="semanal">Semanal</option>
+          <option value="mensal">Mensal</option>
+        </select>
+      </div>
 
       <p class="resume-note" id="resumeNote" hidden></p>
 

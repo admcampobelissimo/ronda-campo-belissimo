@@ -44,7 +44,9 @@ function recolorLogo(dataUrl, color) {
 // AREAS: [{ group, areas: [nome,...] }]
 // FLAT_AREAS: [{ id, group, name }]
 // stateAreas: { [id]: { done, timestamp, obs } }
-// meta: { colaborador, equipe, turno, startedAt }
+// meta: { colaborador, equipe, turno?, frequency?, startedAt } — turno só
+// vem preenchido em rondas antigas; frequency só em rondas novas de
+// equipes com mais de uma periodicidade cadastrada
 // getPhoto: async (areaId) => { dataUrl, width, height } | null
 // logoUrl: caminho relativo do logo.png a partir de quem chamou
 export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, getPhoto, logoUrl = "assets/logo.png" }) {
@@ -138,15 +140,18 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
   doc.text(CONDO_NOME, margin, y);
   y += 10;
 
-  const info = [
-    ["Data", formatDate(meta.startedAt)],
-    ["Colaborador", meta.colaborador],
-    ["Equipe", meta.equipe],
-    ["Turno", meta.turno],
+  // "Turno" só aparece em rondas antigas (que ainda o têm gravado);
+  // "Periodicidade" só aparece em rondas novas de equipes com mais de uma
+  // periodicidade cadastrada — nunca as duas juntas, nunca nenhuma nas
+  // equipes simples, preservando a informação de relatórios antigos.
+  const info = [["Data", formatDate(meta.startedAt)], ["Colaborador", meta.colaborador], ["Equipe", meta.equipe]];
+  if (meta.turno) info.push(["Turno", meta.turno]);
+  if (meta.frequency) info.push(["Periodicidade", meta.frequency]);
+  info.push(
     ["Início da ronda", formatTime(meta.startedAt)],
     ["Áreas vistoriadas", `${done} de ${total}`],
     ["Geração do relatório", formatDateTime(new Date())]
-  ];
+  );
   doc.setFontSize(12);
   info.forEach(([label, value]) => {
     doc.setFont(undefined, "bold");

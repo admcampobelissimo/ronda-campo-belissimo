@@ -409,13 +409,42 @@ input[type="text"]:focus, select:focus, textarea:focus {
 .btn-secondary-sm { background: var(--bg); color: var(--navy-800); }
 
 .place-card { margin-bottom: 12px; }
+.place-card.dragging { box-shadow: 0 8px 24px rgba(11, 37, 69, 0.25); opacity: 0.95; z-index: 50; cursor: grabbing; }
+.place-card-placeholder { border: 1.5px dashed var(--gold-light); border-radius: 12px; margin-bottom: 12px; background: rgba(212, 176, 106, 0.08); }
 .place-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 10px;
 }
 .place-header h3 { margin: 0; color: var(--navy-800); font-size: 15px; }
+.drag-handle {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 6px;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+.place-view { flex: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.place-header-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.freq-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.freq-badge.freq-diaria { background: rgba(46, 125, 79, 0.12); color: var(--success); }
+.freq-badge.freq-semanal { background: rgba(182, 141, 64, 0.14); color: var(--gold); }
+.freq-badge.freq-mensal { background: rgba(18, 54, 99, 0.1); color: var(--navy-700); }
+.place-edit-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.place-edit-row .editar-lugar-nome { flex: 1; min-width: 140px; }
+.place-edit-row .btn { margin-top: 0; padding: 10px 14px; white-space: nowrap; }
 .sub-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
 .add-sub-row { display: flex; gap: 8px; }
 .add-sub-row input { flex: 1; }

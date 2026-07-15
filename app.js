@@ -1,6 +1,6 @@
 import { supabase } from "./supabase-client.js";
 import { login, logout, getSessionProfile } from "./auth.js";
-import { fetchTeam, fetchTeamAreas } from "./areas-repo.js";
+import { fetchTeam, fetchTeamPlaces, buildAreas, distinctFrequencies } from "./areas-repo.js";
 import { savePhoto, getPhoto, clearPhotos, enqueueUpload, updateQueuedObservation, clearUploadQueue } from "./db.js";
 import { drainQueue, initUploadQueueAutoSync } from "./upload-queue.js";
 import { gerarRelatorioPDF } from "./pdf-report.js";
@@ -8,6 +8,7 @@ import { formatDateTime, formatDate, formatTime, pad } from "./format.js";
 import { CONDO_NOME } from "./config.js";
 
 const STATE_KEY = "rondaCB_state_v1";
+const FREQ_LABELS = { diaria: "Diária", semanal: "Semanal", mensal: "Mensal" };
 
 /* ---------------------------------------------------------
    ESTADO (localStorage - metadados da ronda em andamento)
@@ -30,6 +31,8 @@ let profile = null;   // { id, username, full_name, role, team_id, active }
 let team = null;      // { id, name }
 let AREAS = [];
 let FLAT_AREAS = [];
+let rawPlaces = [];        // lugares brutos da equipe (com frequency), pra filtrar sem nova busca
+let needsFrequency = false; // true quando a equipe tem mais de uma periodicidade cadastrada
 
 /* ---------------------------------------------------------
    ELEMENTOS DA UI
@@ -46,7 +49,8 @@ const btnLogin = document.getElementById("btnLogin");
 const loginError = document.getElementById("loginError");
 
 const setupWelcome = document.getElementById("setupWelcome");
-const selectTurno = document.getElementById("selectTurno");
+const periodicidadeWrap = document.getElementById("periodicidadeWrap");
+const selectPeriodicidade = document.getElementById("selectPeriodicidade");
 const btnIniciar = document.getElementById("btnIniciar");
 const resumeNote = document.getElementById("resumeNote");
 
@@ -133,9 +137,8 @@ async function afterLogin() {
   setLoading(true, "Carregando checklist da equipe...");
   try {
     team = await fetchTeam(profile.team_id);
-    const data = await fetchTeamAreas(profile.team_id);
-    AREAS = data.AREAS;
-    FLAT_AREAS = data.FLAT_AREAS;
+    rawPlaces = await fetchTeamPlaces(profile.team_id);
+    needsFrequency = distinctFrequencies(rawPlaces).length > 1;
 
     updateHeader();
     initUploadQueueAutoSync();
@@ -143,11 +146,22 @@ async function afterLogin() {
     const existing = loadState();
     if (existing && existing.employeeId === profile.id && existing.rondaId) {
       state = existing;
+      const built = buildAreas(rawPlaces, state.frequency || null);
+      AREAS = built.AREAS;
+      FLAT_AREAS = built.FLAT_AREAS;
       initSetupScreen();
       renderChecklist();
       showScreen("checklist");
     } else {
       state = null;
+      if (!needsFrequency) {
+        const built = buildAreas(rawPlaces, null);
+        AREAS = built.AREAS;
+        FLAT_AREAS = built.FLAT_AREAS;
+      } else {
+        AREAS = [];
+        FLAT_AREAS = [];
+      }
       initSetupScreen();
       showScreen("setup");
     }
@@ -168,9 +182,12 @@ function updateHeader() {
    TELA 1 - INÍCIO DA RONDA
 --------------------------------------------------------- */
 function initSetupScreen() {
-  setupWelcome.textContent = `${profile.full_name} • ${team ? team.name : ""} — selecione o turno para iniciar.`;
+  periodicidadeWrap.hidden = !needsFrequency;
+  setupWelcome.textContent = needsFrequency
+    ? `${profile.full_name} • ${team ? team.name : ""} — selecione a periodicidade para iniciar.`
+    : `${profile.full_name} • ${team ? team.name : ""} — toque em iniciar para começar a vistoria.`;
   if (state && state.rondaId) {
-    selectTurno.value = state.turno || "";
+    if (needsFrequency) selectPeriodicidade.value = state.frequency || "";
     const doneCount = Object.values(state.areas).filter((a) => a.done).length;
     resumeNote.hidden = false;
     resumeNote.textContent = `Você tem uma ronda em andamento iniciada às ${formatTime(state.startedAt)} (${doneCount}/${FLAT_AREAS.length} concluídas). Ao continuar, ela será retomada.`;
@@ -182,21 +199,27 @@ function initSetupScreen() {
 }
 
 btnIniciar.addEventListener("click", async () => {
-  const turno = selectTurno.value;
-  if (!turno) { showToast("Selecione o turno."); selectTurno.focus(); return; }
-
   if (state && state.rondaId) {
     renderChecklist();
     showScreen("checklist");
     return;
   }
 
+  const frequency = needsFrequency ? selectPeriodicidade.value : null;
+  if (needsFrequency && !frequency) { showToast("Selecione a periodicidade."); selectPeriodicidade.focus(); return; }
+
   setLoading(true, "Iniciando ronda...");
   try {
+    if (needsFrequency) {
+      const built = buildAreas(rawPlaces, frequency);
+      AREAS = built.AREAS;
+      FLAT_AREAS = built.FLAT_AREAS;
+    }
+
     const startedAt = new Date().toISOString();
     const { data, error } = await supabase
       .from("rondas")
-      .insert({ employee_id: profile.id, team_id: profile.team_id, turno, started_at: startedAt })
+      .insert({ employee_id: profile.id, team_id: profile.team_id, frequency, started_at: startedAt })
       .select()
       .single();
     if (error) throw error;
@@ -207,7 +230,7 @@ btnIniciar.addEventListener("click", async () => {
       teamId: profile.team_id,
       colaborador: profile.full_name,
       equipe: team ? team.name : "",
-      turno,
+      frequency,
       startedAt,
       areas: {}
     };
@@ -469,7 +492,12 @@ btnGerarRelatorio.addEventListener("click", async () => {
   try {
     const blob = await gerarRelatorioPDF({
       AREAS, FLAT_AREAS, stateAreas: state.areas,
-      meta: { colaborador: state.colaborador, equipe: state.equipe, turno: state.turno, startedAt: state.startedAt },
+      meta: {
+        colaborador: state.colaborador,
+        equipe: state.equipe,
+        frequency: state.frequency ? FREQ_LABELS[state.frequency] : null,
+        startedAt: state.startedAt
+      },
       getPhoto
     });
     lastPdfBlob = blob;
@@ -528,7 +556,7 @@ btnNovaRonda.addEventListener("click", async () => {
   clearState();
   state = null;
   lastPdfBlob = null;
-  selectTurno.value = "";
+  if (needsFrequency) selectPeriodicidade.value = "";
   initSetupScreen();
   showScreen("setup");
 });

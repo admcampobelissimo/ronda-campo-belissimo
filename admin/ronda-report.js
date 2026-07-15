@@ -1,13 +1,15 @@
 import { supabase } from "../supabase-client.js";
 import { gerarRelatorioPDF } from "../pdf-report.js";
 
+const FREQ_LABELS = { diaria: "Diária", semanal: "Semanal", mensal: "Mensal" };
+
 // Busca os metadados de uma ronda + todos os seus itens (área, observação,
 // caminho da foto no Storage). Usado tanto pela tela de histórico (visualizar)
 // quanto pelo gerador de PDF (individual ou em lote, no arquivamento).
 export async function fetchRondaItemsData(rondaId) {
   const { data: ronda, error: rondaError } = await supabase
     .from("rondas")
-    .select("id, turno, started_at, finished_at, team_id, profiles(full_name), teams(name)")
+    .select("id, turno, frequency, started_at, finished_at, team_id, profiles(full_name), teams(name)")
     .eq("id", rondaId)
     .single();
   if (rondaError) throw rondaError;
@@ -67,7 +69,8 @@ export async function gerarPdfParaRonda(rondaId) {
     meta: {
       colaborador: ronda.profiles ? ronda.profiles.full_name : "—",
       equipe: ronda.teams ? ronda.teams.name : "—",
-      turno: ronda.turno || "—",
+      turno: ronda.turno || null,
+      frequency: ronda.frequency ? FREQ_LABELS[ronda.frequency] : null,
       startedAt: ronda.started_at
     },
     getPhoto,

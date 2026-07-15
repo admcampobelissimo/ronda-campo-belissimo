@@ -7,6 +7,7 @@
 -- TIPOS
 -- ------------------------------------------------------------
 create type public.user_role as enum ('admin', 'operacional');
+create type public.place_frequency as enum ('diaria', 'semanal', 'mensal');
 
 -- ------------------------------------------------------------
 -- TABELAS
@@ -22,6 +23,11 @@ create table public.places (
   team_id uuid not null references public.teams(id) on delete cascade,
   name text not null,
   sort_order int not null default 0,
+  -- Periodicidade da vistoria (diária/semanal/mensal). Times com uma só
+  -- periodicidade cadastrada (a maioria) nunca veem seletor nenhum no app
+  -- operacional — isso só aparece quando o time tem lugares de mais de um
+  -- tipo (ex: Manutenção, com lugares diários e outros semanais/mensais).
+  frequency public.place_frequency not null default 'diaria',
   created_at timestamptz not null default now(),
   unique (team_id, name)
 );
@@ -51,7 +57,12 @@ create table public.rondas (
   id uuid primary key default gen_random_uuid(),
   employee_id uuid not null references public.profiles(id),
   team_id uuid not null references public.teams(id),
+  -- turno: mantida só por compatibilidade com rondas antigas; o app não
+  -- grava mais nela (o horário de início/fim já cobre a mesma informação).
   turno text,
+  -- Periodicidade escolhida ao iniciar a ronda, quando o time tem mais de
+  -- uma cadastrada nos lugares (places.frequency). Null nos demais times.
+  frequency public.place_frequency,
   started_at timestamptz not null default now(),
   finished_at timestamptz,
   archived_at timestamptz,
