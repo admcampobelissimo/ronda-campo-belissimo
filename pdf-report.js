@@ -14,6 +14,28 @@ function loadImageAsBase64(url) {
   }));
 }
 
+// Gera uma versão do logo pintada numa cor sólida (mantendo a transparência
+// original), para usar sobre o fundo escuro do cabeçalho — o logo original é
+// cinza claro e ficaria com contraste ruim direto sobre a faixa azul-marinho.
+function recolorLogo(dataUrl, color) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0);
+      ctx.globalCompositeOperation = "source-in";
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/png"));
+    };
+    img.onerror = () => reject(new Error("Falha ao processar o logo"));
+    img.src = dataUrl;
+  });
+}
+
 // Gera o PDF do relatório de ronda. Reutilizável tanto pelo colaborador
 // (fotos vindas do IndexedDB local, ronda em andamento) quanto pelo painel
 // do admin (fotos vindas do Supabase Storage, ronda já finalizada) — quem
@@ -44,18 +66,32 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
       doc.text(`Página ${i}/${total}`, pageW - margin, pageH - 8, { align: "right" });
     }
   }
-  function addRunningHeaders() {
+  async function addRunningHeaders() {
     const total = doc.internal.getNumberOfPages();
+    if (total < 2) return;
+
+    let whiteLogo = null;
+    try {
+      whiteLogo = await recolorLogo(await loadImageAsBase64(logoUrl), "#ffffff");
+    } catch (e) { whiteLogo = null; }
+
     for (let i = 2; i <= total; i++) {
       doc.setPage(i);
       doc.setFillColor(...NAVY);
       doc.rect(0, 0, pageW, runningHeaderH, "F");
       doc.setFillColor(...GOLD);
       doc.rect(0, runningHeaderH, pageW, 0.9, "F");
-      doc.setFont(undefined, "bold");
-      doc.setFontSize(10.5);
-      doc.setTextColor(255, 255, 255);
-      doc.text(CONDO_NOME, margin, runningHeaderH / 2 + 3.2);
+
+      if (whiteLogo) {
+        const logoH = 8.5, logoW = logoH * (1214 / 186);
+        doc.addImage(whiteLogo, "PNG", margin, (runningHeaderH - logoH) / 2, logoW, logoH);
+      } else {
+        doc.setFont(undefined, "bold");
+        doc.setFontSize(10.5);
+        doc.setTextColor(255, 255, 255);
+        doc.text(CONDO_NOME, margin, runningHeaderH / 2 + 3.2);
+      }
+
       doc.setFont(undefined, "normal");
       doc.setFontSize(9);
       doc.setTextColor(...GOLD_LIGHT);
@@ -266,6 +302,6 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
   }
 
   addFooters();
-  addRunningHeaders();
+  await addRunningHeaders();
   return doc.output("blob");
 }
