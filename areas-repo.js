@@ -12,7 +12,7 @@ export async function fetchTeam(teamId) {
 export async function fetchTeamPlaces(teamId) {
   const { data: places, error } = await supabase
     .from("places")
-    .select("id, name, sort_order, frequency, sub_places(id, name, sort_order)")
+    .select("id, name, sort_order, frequency, sub_places(id, name, sort_order, requires_photo)")
     .eq("team_id", teamId)
     .order("sort_order", { ascending: true });
   if (error) throw error;
@@ -40,7 +40,7 @@ export function buildAreas(places, frequency = null) {
     const subPlaces = [...(place.sub_places || [])].sort((a, b) => a.sort_order - b.sort_order);
     AREAS.push({ group: place.name, areas: subPlaces.map((s) => s.name) });
     for (const s of subPlaces) {
-      FLAT_AREAS.push({ id: s.id, group: place.name, name: s.name });
+      FLAT_AREAS.push({ id: s.id, group: place.name, name: s.name, requiresPhoto: s.requires_photo !== false });
     }
   }
   return { AREAS, FLAT_AREAS };

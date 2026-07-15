@@ -217,13 +217,15 @@ function wireLugares() {
     if (addBtn) {
       const placeCard = addBtn.closest(".place-card");
       const input = placeCard.querySelector(".novo-sub-lugar-input");
+      const tipoSelect = placeCard.querySelector(".novo-sub-lugar-tipo");
       const name = input.value.trim();
+      const requiresPhoto = tipoSelect.value !== "tick";
       if (!name) { showToast("Informe o nome do sub-lugar."); return; }
       setLoading(true, "Criando sub-lugar...");
       try {
         const placeId = placeCard.dataset.id;
         const { count } = await supabase.from("sub_places").select("id", { count: "exact", head: true }).eq("place_id", placeId);
-        const { error } = await supabase.from("sub_places").insert({ place_id: placeId, name, sort_order: (count || 0) + 1 });
+        const { error } = await supabase.from("sub_places").insert({ place_id: placeId, name, sort_order: (count || 0) + 1, requires_photo: requiresPhoto });
         if (error) throw error;
         await loadLugares(teamId);
         showToast("Sub-lugar criado.");
@@ -275,7 +277,7 @@ async function loadLugares(teamId) {
   if (!teamId) { el.innerHTML = ""; return; }
   const { data: places, error } = await supabase
     .from("places")
-    .select("id, name, sort_order, frequency, sub_places(id, name, sort_order)")
+    .select("id, name, sort_order, frequency, sub_places(id, name, sort_order, requires_photo)")
     .eq("team_id", teamId)
     .order("sort_order", { ascending: true });
   if (error) { showToast("Erro ao carregar lugares."); return; }
@@ -315,12 +317,19 @@ async function loadLugares(teamId) {
         <div class="sub-list">
           ${subs.map((s) => `
             <div class="admin-row" data-sub-id="${s.id}">
-              <span>${escapeHtml(s.name)}</span>
+              <span class="sub-lugar-name">
+                ${escapeHtml(s.name)}
+                <span class="subtype-badge ${s.requires_photo === false ? "subtype-badge-tick" : "subtype-badge-foto"}">${s.requires_photo === false ? "Tick" : "Foto"}</span>
+              </span>
               <button type="button" class="btn-danger-sm" data-action="del-subplace">Excluir</button>
             </div>`).join("") || '<p class="admin-empty">Sem sub-lugares.</p>'}
         </div>
         <div class="add-sub-row">
           <input type="text" class="novo-sub-lugar-input" placeholder="Novo sub-lugar (ex: Hall Social 1 e 2)">
+          <select class="novo-sub-lugar-tipo">
+            <option value="foto" selected>Requer foto</option>
+            <option value="tick">Só confirmação (tick)</option>
+          </select>
           <button type="button" class="btn btn-secondary" data-action="add-subplace">Adicionar</button>
         </div>
       </div>`;

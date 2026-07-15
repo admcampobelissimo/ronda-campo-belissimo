@@ -1,8 +1,8 @@
 import { supabase } from "./supabase-client.js";
 import { login, logout, getSessionProfile } from "./auth.js";
 import { fetchTeam, fetchTeamPlaces, buildAreas, distinctFrequencies } from "./areas-repo.js";
-import { savePhoto, getPhoto, clearPhotos, enqueueUpload, updateQueuedObservation, clearUploadQueue } from "./db.js";
-import { drainQueue, initUploadQueueAutoSync } from "./upload-queue.js";
+import { savePhoto, getPhoto, clearPhotos, enqueueUpload, removeUploadJob, updateQueuedObservation, clearUploadQueue } from "./db.js";
+import { drainQueue, waitForDrain, initUploadQueueAutoSync } from "./upload-queue.js";
 import { gerarRelatorioPDF } from "./pdf-report.js";
 import { formatDateTime, formatDate, formatTime, pad } from "./format.js";
 import { CONDO_NOME } from "./config.js";
@@ -251,6 +251,22 @@ btnIniciar.addEventListener("click", async () => {
 function areaCardHtml(area) {
   const entry = state.areas[area.id];
   const done = !!(entry && entry.done);
+  const requiresPhoto = area.requiresPhoto !== false;
+
+  const actionBtn = requiresPhoto
+    ? `<button type="button" class="btn-camera" data-action="foto" aria-label="Tirar foto de ${area.name}">${done ? "🔄" : "📷"}</button>`
+    : `<button type="button" class="btn-tick" data-action="tick" aria-label="${done ? "Desmarcar verificação de" : "Confirmar verificação de"} ${area.name}">${done ? "✔" : ""}</button>`;
+
+  const mediaBlock = requiresPhoto
+    ? `<div class="area-photo-wrap" ${done ? "" : "hidden"}>
+        <img class="area-photo" src="${done ? entry.thumb || "" : ""}" alt="Foto ${area.name}">
+        <span class="area-timestamp">${done ? formatDateTime(entry.timestamp) : ""}</span>
+      </div>`
+    : `<div class="area-tick-wrap" ${done ? "" : "hidden"}>
+        <span class="area-tick-badge">✔ Verificado</span>
+        <span class="area-tick-time">${done && entry ? formatDateTime(entry.timestamp) : ""}</span>
+      </div>`;
+
   return `
     <div class="area-card ${done ? "done" : ""}" data-id="${area.id}">
       <div class="area-row">
@@ -258,12 +274,9 @@ function areaCardHtml(area) {
           <span class="area-status-dot"></span>
           <span class="area-name">${area.name}</span>
         </div>
-        <button type="button" class="btn-camera" data-action="foto" aria-label="Tirar foto de ${area.name}">${done ? "🔄" : "📷"}</button>
+        ${actionBtn}
       </div>
-      <div class="area-photo-wrap" ${done ? "" : "hidden"}>
-        <img class="area-photo" src="${done ? entry.thumb || "" : ""}" alt="Foto ${area.name}">
-        <span class="area-timestamp">${done ? formatDateTime(entry.timestamp) : ""}</span>
-      </div>
+      ${mediaBlock}
       <textarea class="area-obs" placeholder="Observação (opcional): ex. piso sujo, móvel danificado, espelho quebrado...">${entry && entry.obs ? entry.obs : ""}</textarea>
     </div>`;
 }
@@ -301,12 +314,25 @@ function updateGroupCount(groupName) {
 }
 
 groupsContainer.addEventListener("click", (e) => {
-  const btn = e.target.closest('[data-action="foto"]');
-  if (!btn) return;
-  const card = btn.closest(".area-card");
-  activeAreaId = card.dataset.id;
-  cameraInput.value = "";
-  cameraInput.click();
+  const fotoBtn = e.target.closest('[data-action="foto"]');
+  if (fotoBtn) {
+    const card = fotoBtn.closest(".area-card");
+    activeAreaId = card.dataset.id;
+    cameraInput.value = "";
+    cameraInput.click();
+    return;
+  }
+
+  const tickBtn = e.target.closest('[data-action="tick"]');
+  if (tickBtn) {
+    const card = tickBtn.closest(".area-card");
+    const id = card.dataset.id;
+    const area = FLAT_AREAS.find((a) => a.id === id);
+    if (!area) return;
+    const entry = state.areas[id];
+    if (entry && entry.done) unmarkTick(area);
+    else markTickDone(area);
+  }
 });
 
 // Salva localmente a cada tecla; sincroniza com o Supabase quando o campo perde o foco.
@@ -397,6 +423,68 @@ function refreshAreaCard(id) {
   if (!card) return;
   const area = FLAT_AREAS.find((a) => a.id === id);
   card.outerHTML = areaCardHtml(area);
+}
+
+/* ---------------------------------------------------------
+   CONFIRMAÇÃO POR "TICK" (sub-lugares que não exigem foto)
+--------------------------------------------------------- */
+async function markTickDone(area) {
+  const now = new Date();
+  if (!state.areas[area.id]) state.areas[area.id] = { done: false, timestamp: null, obs: "" };
+  state.areas[area.id].done = true;
+  state.areas[area.id].timestamp = now.toISOString();
+  saveState(state);
+
+  const jobId = await enqueueUpload({
+    kind: "tick",
+    teamId: state.teamId,
+    employeeId: state.employeeId,
+    rondaId: state.rondaId,
+    subPlaceId: area.id,
+    observation: state.areas[area.id].obs || null,
+    capturedAt: now.toISOString()
+  });
+  state.areas[area.id].queueJobId = jobId;
+  saveState(state);
+  drainQueue(); // dispara em segundo plano, não bloqueia a UI
+
+  refreshAreaCard(area.id);
+  updateGroupCount(area.group);
+  updateProgress();
+  showToast(`Confirmado: ${area.name}`);
+}
+
+// "Concluído" pra qualquer leitor dos dados (histórico do admin, PDF) é
+// definido só pela linha existir em ronda_items — então desmarcar precisa
+// necessariamente apagá-la no servidor, não só mudar um status local.
+// Cancela o job da fila (se ainda não foi enviado) e apaga a linha de
+// qualquer forma, cobrindo tanto "ainda não sincronizou" quanto "já
+// sincronizou" sem precisar diferenciar os dois casos.
+async function unmarkTick(area) {
+  const entry = state.areas[area.id];
+  if (!entry) return;
+  const jobId = entry.queueJobId;
+
+  setLoading(true, "Desfazendo confirmação...");
+  try {
+    await waitForDrain(); // evita que um envio em voo confirme o item de volta logo depois do delete
+    if (jobId != null) await removeUploadJob(jobId);
+    try {
+      await supabase.from("ronda_items").delete().eq("ronda_id", state.rondaId).eq("sub_place_id", area.id);
+    } catch (err) {
+      console.error("Falha ao desfazer confirmação no servidor:", err);
+      showToast("Sem internet: desfeito aqui, mas pode levar um tempo pra refletir no histórico do admin.");
+    }
+  } finally {
+    state.areas[area.id].done = false;
+    state.areas[area.id].timestamp = null;
+    delete state.areas[area.id].queueJobId;
+    saveState(state);
+    refreshAreaCard(area.id);
+    updateGroupCount(area.group);
+    updateProgress();
+    setLoading(false);
+  }
 }
 
 function withTimeout(promise, ms, message) {

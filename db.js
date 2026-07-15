@@ -110,6 +110,18 @@ export async function updateQueuedObservation(rondaId, subPlaceId, observation) 
   });
 }
 
+// Remove um job específico da fila (usado ao desfazer um tick antes dele
+// ter sido enviado — cancela o envio pendente).
+export async function removeUploadJob(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_QUEUE, "readwrite");
+    tx.objectStore(STORE_QUEUE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function clearUploadQueue() {
   const db = await openDB();
   return new Promise((resolve, reject) => {

@@ -4,6 +4,7 @@ import { CONDO_NOME } from "./config.js";
 const NAVY = [11, 37, 69];
 const GOLD = [182, 141, 64];
 const GOLD_LIGHT = [212, 176, 106];
+const SUCCESS = [46, 125, 79];
 
 function loadImageAsBase64(url) {
   return fetch(url).then((r) => r.blob()).then((blob) => new Promise((resolve, reject) => {
@@ -272,6 +273,18 @@ export async function gerarRelatorioPDF({ AREAS, FLAT_AREAS, stateAreas, meta, g
 
     if (card.croppedUrl) {
       doc.addImage(card.croppedUrl, "JPEG", x, cy, colW, photoH);
+    } else if (card.area.requiresPhoto === false) {
+      // Sub-lugar do tipo "tick" — não é uma foto faltando, é o esperado.
+      doc.setDrawColor(...SUCCESS);
+      doc.setFillColor(232, 244, 237);
+      doc.roundedRect(x, cy, colW, photoH, 2, 2, "FD");
+      doc.setFont(undefined, "bold");
+      doc.setFontSize(9);
+      doc.setTextColor(...SUCCESS);
+      doc.text("✔", x + colW / 2, cy + photoH / 2 - 3, { align: "center" });
+      doc.setFont(undefined, "normal");
+      doc.setFontSize(7.5);
+      doc.text("Verificado", x + colW / 2, cy + photoH / 2 + 4, { align: "center" });
     } else {
       doc.setDrawColor(225);
       doc.setFillColor(246, 247, 249);

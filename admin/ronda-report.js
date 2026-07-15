@@ -16,7 +16,7 @@ export async function fetchRondaItemsData(rondaId) {
 
   const { data: items, error: itemsError } = await supabase
     .from("ronda_items")
-    .select("id, sub_place_id, observation, captured_at, photo_storage_path, sub_places(name, place_id, places(name))")
+    .select("id, sub_place_id, observation, captured_at, photo_storage_path, sub_places(name, place_id, requires_photo, places(name))")
     .eq("ronda_id", rondaId);
   if (itemsError) throw itemsError;
 
@@ -38,7 +38,12 @@ export async function gerarPdfParaRonda(rondaId) {
     if (!groupSeen.has(groupName)) { groupSeen.set(groupName, []); AREAS.push({ group: groupName, areas: groupSeen.get(groupName) }); }
     const name = it.sub_places ? it.sub_places.name : it.sub_place_id;
     groupSeen.get(groupName).push(name);
-    FLAT_AREAS.push({ id: it.sub_place_id, group: groupName, name });
+    FLAT_AREAS.push({
+      id: it.sub_place_id,
+      group: groupName,
+      name,
+      requiresPhoto: it.sub_places ? it.sub_places.requires_photo !== false : true
+    });
     stateAreas[it.sub_place_id] = { done: true, timestamp: it.captured_at, obs: it.observation };
   }
 

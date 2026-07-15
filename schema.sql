@@ -37,6 +37,9 @@ create table public.sub_places (
   place_id uuid not null references public.places(id) on delete cascade,
   name text not null,
   sort_order int not null default 0,
+  -- Se false, o item vira um "tick" de confirmação no app operacional (sem
+  -- câmera) em vez de exigir foto. Escolhido no cadastro do sub-lugar.
+  requires_photo boolean not null default true,
   created_at timestamptz not null default now(),
   unique (place_id, name)
 );
@@ -303,6 +306,14 @@ create policy "operacional update own ronda_items" on public.ronda_items for upd
     where r.id = ronda_items.ronda_id and r.employee_id = auth.uid()
   ))
   with check (exists (
+    select 1 from public.rondas r
+    where r.id = ronda_items.ronda_id and r.employee_id = auth.uid()
+  ));
+-- Necessária para "desmarcar" um item do tipo tick: como "concluído" é
+-- definido pela existência da linha em ronda_items, desmarcar precisa
+-- apagá-la de verdade, não só atualizar um campo.
+create policy "operacional delete own ronda_items" on public.ronda_items for delete
+  using (exists (
     select 1 from public.rondas r
     where r.id = ronda_items.ronda_id and r.employee_id = auth.uid()
   ));

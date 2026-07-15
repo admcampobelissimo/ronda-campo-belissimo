@@ -3,6 +3,7 @@ import { getPendingUploads, updateUploadJob } from "./db.js";
 
 const MAX_ATTEMPTS = 8;
 let draining = false;
+let currentDrainPromise = null;
 
 // Converte a dataURL (já processada/carimbada) num Blob para subir ao Storage.
 async function dataUrlToBlob(dataUrl) {
@@ -16,46 +17,73 @@ function storagePath(job) {
 
 // Tenta enviar todos os itens pendentes da fila. Seguro de chamar várias
 // vezes (ex: ao voltar internet e ao carregar a página) — usa um trava
-// simples para não rodar em paralelo consigo mesma.
-export async function drainQueue(onProgress) {
-  if (draining) return;
+// simples para não rodar em paralelo consigo mesma; chamadas concorrentes
+// recebem a mesma promise da sincronização já em andamento.
+export function drainQueue(onProgress) {
+  if (draining) return currentDrainPromise;
   draining = true;
-  try {
-    const jobs = await getPendingUploads();
-    for (const job of jobs) {
-      if (job.attempts >= MAX_ATTEMPTS) continue;
-      try {
-        const blob = await dataUrlToBlob(job.dataUrl);
-        const path = storagePath(job);
+  currentDrainPromise = (async () => {
+    try {
+      const jobs = await getPendingUploads();
+      for (const job of jobs) {
+        if (job.attempts >= MAX_ATTEMPTS) continue;
+        try {
+          if (job.kind === "tick") {
+            // Confirmação sem foto: só grava a linha em ronda_items.
+            const { error: upsertError } = await supabase.from("ronda_items").upsert(
+              {
+                ronda_id: job.rondaId,
+                sub_place_id: job.subPlaceId,
+                photo_storage_path: null,
+                observation: job.observation || null,
+                captured_at: job.capturedAt
+              },
+              { onConflict: "ronda_id,sub_place_id" }
+            );
+            if (upsertError) throw upsertError;
+          } else {
+            const blob = await dataUrlToBlob(job.dataUrl);
+            const path = storagePath(job);
 
-        const { error: uploadError } = await supabase.storage
-          .from("ronda-photos")
-          .upload(path, blob, { contentType: "image/jpeg", upsert: true });
-        if (uploadError) throw uploadError;
+            const { error: uploadError } = await supabase.storage
+              .from("ronda-photos")
+              .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+            if (uploadError) throw uploadError;
 
-        const { error: upsertError } = await supabase.from("ronda_items").upsert(
-          {
-            ronda_id: job.rondaId,
-            sub_place_id: job.subPlaceId,
-            photo_storage_path: path,
-            observation: job.observation || null,
-            captured_at: job.capturedAt
-          },
-          { onConflict: "ronda_id,sub_place_id" }
-        );
-        if (upsertError) throw upsertError;
+            const { error: upsertError } = await supabase.from("ronda_items").upsert(
+              {
+                ronda_id: job.rondaId,
+                sub_place_id: job.subPlaceId,
+                photo_storage_path: path,
+                observation: job.observation || null,
+                captured_at: job.capturedAt
+              },
+              { onConflict: "ronda_id,sub_place_id" }
+            );
+            if (upsertError) throw upsertError;
+          }
 
-        await updateUploadJob(job.id, { status: "done" });
-        if (onProgress) onProgress({ ok: true, job });
-      } catch (err) {
-        console.error("Falha ao sincronizar foto:", err);
-        await updateUploadJob(job.id, { attempts: (job.attempts || 0) + 1, lastError: String(err) });
-        if (onProgress) onProgress({ ok: false, job, error: err });
+          await updateUploadJob(job.id, { status: "done" });
+          if (onProgress) onProgress({ ok: true, job });
+        } catch (err) {
+          console.error("Falha ao sincronizar item da fila:", err);
+          await updateUploadJob(job.id, { attempts: (job.attempts || 0) + 1, lastError: String(err) });
+          if (onProgress) onProgress({ ok: false, job, error: err });
+        }
       }
+    } finally {
+      draining = false;
     }
-  } finally {
-    draining = false;
-  }
+  })();
+  currentDrainPromise.finally(() => { currentDrainPromise = null; });
+  return currentDrainPromise;
+}
+
+// Espera a sincronização em andamento (se houver) terminar antes de
+// prosseguir — usado ao desfazer um tick, para não correr o risco de um
+// upload em voo confirmar o item de volta logo depois de apagá-lo.
+export async function waitForDrain() {
+  if (currentDrainPromise) await currentDrainPromise;
 }
 
 export function initUploadQueueAutoSync() {

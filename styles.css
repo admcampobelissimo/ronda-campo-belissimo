@@ -266,6 +266,19 @@ input[type="text"]:focus, select:focus, textarea:focus {
 }
 .area-card.done .btn-camera { background: var(--success); }
 
+.btn-tick {
+  flex-shrink: 0;
+  width: 44px; height: 44px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: #fff;
+  color: var(--text-muted);
+  font-size: 19px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.area-card.done .btn-tick { background: var(--success); border-color: var(--success); color: #fff; }
+
 .area-photo-wrap {
   margin-top: 12px;
   position: relative;
@@ -283,6 +296,17 @@ input[type="text"]:focus, select:focus, textarea:focus {
   padding: 3px 8px;
   border-radius: 20px;
 }
+
+.area-tick-wrap { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+.area-tick-badge {
+  background: rgba(46, 125, 79, 0.12);
+  color: var(--success);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.area-tick-time { color: var(--text-muted); font-size: 12px; }
 
 .area-obs {
   margin-top: 10px;
@@ -446,8 +470,13 @@ input[type="text"]:focus, select:focus, textarea:focus {
 .place-edit-row .editar-lugar-nome { flex: 1; min-width: 140px; }
 .place-edit-row .btn { margin-top: 0; padding: 10px 14px; white-space: nowrap; }
 .sub-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.add-sub-row { display: flex; gap: 8px; }
-.add-sub-row input { flex: 1; }
+.sub-lugar-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.subtype-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600; white-space: nowrap; }
+.subtype-badge-foto { background: rgba(18, 54, 99, 0.1); color: var(--navy-700); }
+.subtype-badge-tick { background: rgba(46, 125, 79, 0.12); color: var(--success); }
+.add-sub-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.add-sub-row input { flex: 1; min-width: 140px; }
+.add-sub-row select { flex-shrink: 0; width: auto; }
 .add-sub-row .btn { margin-top: 0; padding: 10px 14px; white-space: nowrap; }
 
 .ronda-card { padding: 0; overflow: hidden; }
