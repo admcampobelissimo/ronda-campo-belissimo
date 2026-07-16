@@ -566,9 +566,12 @@ async function loadHistorico(teamId) {
           <strong>${r.profiles ? r.profiles.full_name : "—"}</strong>
           <span>${formatDate(r.started_at)} • ${r.turno || (r.frequency ? FREQ_LABELS[r.frequency] : "—")} • ${r.finished_at ? "concluída" : "em andamento"}${r.archived_at ? " • arquivada no Drive" : ""}</span>
         </div>
-        ${r.archived_at && r.drive_file_link
-          ? `<a href="${r.drive_file_link}" target="_blank" rel="noopener" class="btn-secondary-sm" data-action="ver-drive">Ver no Drive</a>`
-          : `<button type="button" class="btn-secondary-sm" data-action="gerar-pdf-historico">Gerar PDF</button>`}
+        <div class="ronda-header-actions">
+          ${r.archived_at && r.drive_file_link
+            ? `<a href="${r.drive_file_link}" target="_blank" rel="noopener" class="btn-secondary-sm" data-action="ver-drive">Ver no Drive</a>`
+            : `<button type="button" class="btn-secondary-sm" data-action="gerar-pdf-historico">Gerar PDF</button>`}
+          <button type="button" class="btn-danger-sm" data-action="excluir-ronda">Excluir</button>
+        </div>
       </div>
       <div class="ronda-items" hidden></div>
     </div>`).join("");
@@ -582,7 +585,8 @@ document.getElementById("listaHistorico").addEventListener("click", async (e) =>
   if (
     e.target.closest('[data-action="toggle-ronda"]') &&
     !e.target.closest('[data-action="gerar-pdf-historico"]') &&
-    !e.target.closest('[data-action="ver-drive"]')
+    !e.target.closest('[data-action="ver-drive"]') &&
+    !e.target.closest('[data-action="excluir-ronda"]')
   ) {
     const itemsEl = card.querySelector(".ronda-items");
     if (itemsEl.hidden) {
@@ -596,7 +600,38 @@ document.getElementById("listaHistorico").addEventListener("click", async (e) =>
   if (e.target.closest('[data-action="gerar-pdf-historico"]')) {
     await gerarPdfHistorico(rondaId, card);
   }
+
+  if (e.target.closest('[data-action="excluir-ronda"]')) {
+    await excluirRonda(rondaId, card);
+  }
 });
+
+// Apaga a ronda (as linhas de ronda_items são apagadas em cascata pelo
+// banco) e também as fotos dela no Storage — sem isso, elas ficariam
+// órfãs, ocupando espaço sem nenhuma linha apontando pra elas.
+async function excluirRonda(rondaId, card) {
+  if (!confirm("Excluir esta ronda? Isso apaga todas as fotos, confirmações e observações registradas nela — não pode ser desfeito.")) return;
+  setLoading(true, "Excluindo ronda...");
+  try {
+    const { items } = await fetchRondaItemsData(rondaId);
+    const paths = items.filter((it) => it.photo_storage_path).map((it) => it.photo_storage_path);
+
+    const { error } = await supabase.from("rondas").delete().eq("id", rondaId);
+    if (error) throw error;
+
+    if (paths.length > 0) {
+      const { error: removeError } = await supabase.storage.from("ronda-photos").remove(paths);
+      if (removeError) console.error("Ronda excluída, mas falhou ao apagar fotos do Storage:", removeError);
+    }
+
+    card.remove();
+    showToast("Ronda excluída.");
+  } catch (err) {
+    showToast("Erro ao excluir ronda: " + err.message);
+  } finally {
+    setLoading(false);
+  }
+}
 
 async function renderRondaItems(rondaId, container) {
   container.innerHTML = `<p class="admin-empty">Carregando...</p>`;
