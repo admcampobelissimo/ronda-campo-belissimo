@@ -21,6 +21,16 @@ function setLoading(on, text) {
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+// Traduz o erro cru do Postgres pra uma mensagem que faça sentido — o caso
+// mais comum é tentar excluir um lugar/sub-lugar que já tem histórico de
+// rondas (foto ou tick) registrado, o que o banco recusa de propósito pra
+// não apagar dado histórico sem querer.
+function friendlyDeleteError(err) {
+  if (err && err.code === "23503") {
+    return "já existe histórico de rondas registrado aqui (fotos ou confirmações). Não é possível excluir sem apagar esse histórico primeiro.";
+  }
+  return err.message;
+}
 
 /* ---------------------------------------------------------
    SESSÃO / GATE
@@ -246,7 +256,7 @@ function wireLugares() {
         if (error) throw error;
         await loadLugares(teamId);
       } catch (err) {
-        showToast("Erro ao excluir lugar: " + err.message);
+        showToast("Erro ao excluir lugar: " + friendlyDeleteError(err));
       } finally {
         setLoading(false);
       }
@@ -262,7 +272,7 @@ function wireLugares() {
         if (error) throw error;
         await loadLugares(teamId);
       } catch (err) {
-        showToast("Erro ao excluir sub-lugar: " + err.message);
+        showToast("Erro ao excluir sub-lugar: " + friendlyDeleteError(err));
       } finally {
         setLoading(false);
       }
