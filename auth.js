@@ -24,6 +24,13 @@ export async function login(username, password) {
     password
   });
   if (error) {
+    // Falha de rede/servidor (ex: projeto do Supabase pausado por
+    // inatividade) chega sem status HTTP nenhum — bem diferente de uma
+    // senha errada de verdade (essa vem com status 400). Sem essa
+    // distinção, as duas situações mostravam a mesma mensagem enganosa.
+    if (!error.status) {
+      throw new Error("Não foi possível conectar ao servidor. Verifique sua internet ou tente novamente em alguns instantes.");
+    }
     throw new Error("Usuário ou senha inválidos.");
   }
   let profile;
