@@ -144,7 +144,27 @@ async function afterLogin() {
     initUploadQueueAutoSync();
 
     const existing = loadState();
+    let canResume = false;
     if (existing && existing.employeeId === profile.id && existing.rondaId) {
+      canResume = true; // otimista — só desmentido se o servidor confirmar que não deve retomar
+      try {
+        const { data: rondaCheck, error: checkError } = await supabase
+          .from("rondas")
+          .select("finished_at")
+          .eq("id", existing.rondaId)
+          .maybeSingle();
+        if (checkError) throw checkError;
+        // Sem essa checagem, uma ronda já finalizada (relatório já gerado,
+        // em qualquer aparelho) ou excluída pelo admin continuava editável
+        // pra sempre no aparelho que ficou com o estado local salvo.
+        if (!rondaCheck || rondaCheck.finished_at) canResume = false;
+      } catch (err) {
+        console.error("Não foi possível confirmar o status da ronda salva localmente (seguindo com o que está salvo):", err);
+        // mantém canResume = true — não descarta trabalho local por causa de falha de rede
+      }
+    }
+
+    if (canResume) {
       state = existing;
       const built = buildAreas(rawPlaces, state.frequency || null);
       AREAS = built.AREAS;
@@ -153,6 +173,7 @@ async function afterLogin() {
       renderChecklist();
       showScreen("checklist");
     } else {
+      if (existing) clearState();
       state = null;
       if (!needsFrequency) {
         const built = buildAreas(rawPlaces, null);
@@ -595,6 +616,13 @@ btnGerarRelatorio.addEventListener("click", async () => {
     } catch (err) {
       console.error("Falha ao marcar ronda como concluída (será sincronizado depois):", err);
     }
+
+    // A ronda está encerrada assim que o relatório é gerado — limpa o
+    // ponteiro local pra ela imediatamente, senão o colaborador conseguia
+    // voltar e continuar editando a mesma ronda (adicionar fotos, mudar
+    // observações) mesmo depois de já ter gerado o PDF.
+    clearState();
+    state = null;
 
     const pendentes = FLAT_AREAS.length - done;
     summaryText.textContent = `${done} de ${FLAT_AREAS.length} áreas concluídas` + (pendentes > 0 ? ` — ${pendentes} pendente(s).` : ".");
